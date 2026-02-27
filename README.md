@@ -24,6 +24,21 @@ npm run test
 
 The server listens on `http://127.0.0.1:3000` by default and uses local SQLite storage at `data/ibp.sqlite`.
 
+## Request Signing
+
+`POST /v1/actions/execute` and `POST /v1/actions/:id/resolve` require:
+
+- `x-agentgate-timestamp`
+- `x-agentgate-signature`
+
+The identity public key must be a base64-encoded Ed25519 public key. The signature is base64-encoded Ed25519 over:
+
+```text
+SHA256(timestamp + JSON.stringify(body))
+```
+
+Timestamps older than 60 seconds are rejected.
+
 ## API Summary
 
 - `POST /v1/identities`
@@ -40,7 +55,7 @@ Create an identity:
 curl -s http://127.0.0.1:3000/v1/identities \
   -H 'content-type: application/json' \
   -d '{
-    "publicKey":"pk_demo"
+    "publicKey":"BASE64_ED25519_PUBLIC_KEY"
   }'
 ```
 
@@ -61,8 +76,12 @@ curl -s http://127.0.0.1:3000/v1/bonds/lock \
 Execute an action:
 
 ```bash
+TIMESTAMP="$(date +%s000)"
+
 curl -s http://127.0.0.1:3000/v1/actions/execute \
   -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
   -d '{
     "identityId":"id_...",
     "bondId":"bond_...",
@@ -74,8 +93,12 @@ curl -s http://127.0.0.1:3000/v1/actions/execute \
 Resolve an action as success:
 
 ```bash
+TIMESTAMP="$(date +%s000)"
+
 curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
   -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
   -d '{
     "outcome":"success"
   }'
@@ -84,8 +107,12 @@ curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
 Resolve an action as malicious:
 
 ```bash
+TIMESTAMP="$(date +%s000)"
+
 curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
   -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
   -d '{
     "outcome":"malicious"
   }'
@@ -100,12 +127,12 @@ curl -s http://127.0.0.1:3000/v1/stats
 ## Non-goals / Limitations
 
 - Not production-ready escrow.
-- No real signature verification yet.
+- No nonce store or durable replay tracking beyond the 60-second timestamp window.
 - No KYC.
 - Local SQLite only.
 
 ## Roadmap (short)
 
-- Request signing.
+- Replay protection hardening.
 - Pluggable storage.
 - Optional on-chain escrow.

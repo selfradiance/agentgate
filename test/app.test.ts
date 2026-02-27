@@ -1,7 +1,55 @@
+import {
+  createHash,
+  generateKeyPairSync,
+  sign,
+  type KeyObject
+} from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 
 const apps: ReturnType<typeof createApp>[] = [];
+
+function fromBase64Url(value: string) {
+  const paddedValue = `${value}${"===".slice((value.length + 3) % 4)}`;
+  return Buffer.from(paddedValue.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("base64");
+}
+
+function createSigner() {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey;
+
+  if (!jwk.x) {
+    throw new Error("Missing Ed25519 public key");
+  }
+
+  return {
+    privateKey,
+    publicKey: fromBase64Url(jwk.x)
+  };
+}
+
+function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, timestamp = Date.now().toString()) {
+  const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+
+  return {
+    "x-agentgate-timestamp": timestamp,
+    "x-agentgate-signature": sign(null, message, privateKey).toString("base64")
+  };
+}
+
+async function createIdentity(app: ReturnType<typeof createApp>) {
+  const signer = createSigner();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/identities",
+    payload: { publicKey: signer.publicKey }
+  });
+
+  return {
+    signer,
+    identityId: response.json().identityId as string
+  };
+}
 
 async function buildApp() {
   const app = createApp({ dbPath: ":memory:" });
@@ -23,17 +71,8 @@ describe("IBP state transitions", () => {
   it("returns aggregate stats", async () => {
     const app = await buildApp();
 
-    const firstIdentityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_stats_1" }
-    })).json().identityId as string;
-
-    const secondIdentityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_stats_2" }
-    })).json().identityId as string;
+    const { identityId: firstIdentityId } = await createIdentity(app);
+    const { identityId: secondIdentityId, signer } = await createIdentity(app);
 
     const activeBondId = (await app.inject({
       method: "POST",
@@ -59,15 +98,18 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
+    const actionBody = {
+      identityId: secondIdentityId,
+      actionType: "stats-action",
+      payload: { note: "stats action" },
+      bondId: usedBondId
+    };
+
     await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId: secondIdentityId,
-        actionType: "stats-action",
-        payload: { note: "stats action" },
-        bondId: usedBondId
-      }
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
     });
 
     const response = await app.inject({
@@ -88,11 +130,7 @@ describe("IBP state transitions", () => {
   it("removes an action-backed bond from active stats only after resolution", async () => {
     const app = await buildApp();
 
-    const identityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_stats_resolution" }
-    })).json().identityId as string;
+    const { identityId, signer } = await createIdentity(app);
 
     const bondId = (await app.inject({
       method: "POST",
@@ -106,15 +144,18 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
+    const actionBody = {
+      identityId,
+      actionType: "open-stats-action",
+      payload: "open stats action",
+      bondId
+    };
+
     const actionId = (await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "open-stats-action",
-        payload: "open stats action",
-        bondId
-      }
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
     })).json().actionId as string;
 
     const openStatsResponse = await app.inject({
@@ -129,10 +170,13 @@ describe("IBP state transitions", () => {
       totalLockedCents: 1500
     });
 
+    const resolveBody = { outcome: "failed" as const };
+
     await app.inject({
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
-      payload: { outcome: "failed" }
+      payload: resolveBody,
+      headers: signHeaders(signer.privateKey, resolveBody)
     });
 
     const resolvedStatsResponse = await app.inject({
@@ -151,12 +195,7 @@ describe("IBP state transitions", () => {
   it("refunds 100% for successful actions and updates identity stats", async () => {
     const app = await buildApp();
 
-    const identityResponse = await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_test_1" }
-    });
-    const identityId = identityResponse.json().identityId as string;
+    const { identityId, signer } = await createIdentity(app);
 
     const bondResponse = await app.inject({
       method: "POST",
@@ -171,24 +210,29 @@ describe("IBP state transitions", () => {
     });
     const bondId = bondResponse.json().bondId as string;
 
+    const actionBody = {
+      identityId,
+      actionType: "purchase-intent",
+      payload: {
+        note: "Ready to proceed"
+      },
+      bondId
+    };
+
     const actionResponse = await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "purchase-intent",
-        payload: {
-          note: "Ready to proceed"
-        },
-        bondId
-      }
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
     });
     const actionId = actionResponse.json().actionId as string;
 
+    const resolveBody = { outcome: "success" as const };
     const resolveResponse = await app.inject({
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
-      payload: { outcome: "success" }
+      payload: resolveBody,
+      headers: signHeaders(signer.privateKey, resolveBody)
     });
 
     expect(resolveResponse.statusCode).toBe(200);
@@ -208,7 +252,7 @@ describe("IBP state transitions", () => {
     expect(summaryResponse.statusCode).toBe(200);
     expect(summaryResponse.json()).toEqual({
       identityId,
-      publicKey: "pk_test_1",
+      publicKey: signer.publicKey,
       reputation: {
         score: 15,
         stats: {
@@ -225,11 +269,7 @@ describe("IBP state transitions", () => {
   it("burns 5% on failed actions", async () => {
     const app = await buildApp();
 
-    const identityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_test_2" }
-    })).json().identityId as string;
+    const { identityId, signer } = await createIdentity(app);
 
     const bondId = (await app.inject({
       method: "POST",
@@ -243,21 +283,26 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
+    const actionBody = {
+      identityId,
+      actionType: "timeout-action",
+      payload: "Action with failure risk",
+      bondId
+    };
+
     const actionId = (await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "timeout-action",
-        payload: "Action with failure risk",
-        bondId
-      }
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
     })).json().actionId as string;
 
+    const resolveBody = { outcome: "failed" as const };
     const response = await app.inject({
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
-      payload: { outcome: "failed" }
+      payload: resolveBody,
+      headers: signHeaders(signer.privateKey, resolveBody)
     });
 
     expect(response.statusCode).toBe(200);
@@ -272,11 +317,7 @@ describe("IBP state transitions", () => {
   it("slashes 100% for malicious actions", async () => {
     const app = await buildApp();
 
-    const identityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_test_3" }
-    })).json().identityId as string;
+    const { identityId, signer } = await createIdentity(app);
 
     const bondId = (await app.inject({
       method: "POST",
@@ -290,23 +331,28 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
+    const actionBody = {
+      identityId,
+      actionType: "bad-faith-action",
+      payload: {
+        reason: "Bad faith action"
+      },
+      bondId
+    };
+
     const actionId = (await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "bad-faith-action",
-        payload: {
-          reason: "Bad faith action"
-        },
-        bondId
-      }
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
     })).json().actionId as string;
 
+    const resolveBody = { outcome: "malicious" as const };
     const response = await app.inject({
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
-      payload: { outcome: "malicious" }
+      payload: resolveBody,
+      headers: signHeaders(signer.privateKey, resolveBody)
     });
 
     expect(response.statusCode).toBe(200);
@@ -321,11 +367,7 @@ describe("IBP state transitions", () => {
   it("rejects actions that reference inactive bonds", async () => {
     const app = await buildApp();
 
-    const identityId = (await app.inject({
-      method: "POST",
-      url: "/v1/identities",
-      payload: { publicKey: "pk_test_4" }
-    })).json().identityId as string;
+    const { identityId, signer } = await createIdentity(app);
 
     const bondId = (await app.inject({
       method: "POST",
@@ -339,32 +381,152 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
+    const firstActionBody = {
+      identityId,
+      actionType: "first-action",
+      payload: "First action",
+      bondId
+    };
+
     await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "first-action",
-        payload: "First action",
-        bondId
-      }
+      payload: firstActionBody,
+      headers: signHeaders(signer.privateKey, firstActionBody)
     });
+
+    const secondActionBody = {
+      identityId,
+      actionType: "second-action",
+      payload: "Second action",
+      bondId
+    };
 
     const secondActionResponse = await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
-      payload: {
-        identityId,
-        actionType: "second-action",
-        payload: "Second action",
-        bondId
-      }
+      payload: secondActionBody,
+      headers: signHeaders(signer.privateKey, secondActionBody)
     });
 
     expect(secondActionResponse.statusCode).toBe(409);
     expect(secondActionResponse.json()).toEqual({
       error: "BOND_NOT_ACTIVE",
       message: "Bond is not active"
+    });
+  });
+
+  it("accepts signed action execution using the caller's body field order", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+
+    const bondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId,
+        amountCents: 1000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "field order"
+      }
+    })).json().bondId as string;
+
+    const actionBody = {
+      bondId,
+      payload: { note: "different order" },
+      actionType: "ordered-action",
+      identityId
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody)
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      status: "open"
+    });
+  });
+
+  it("rejects action execution with an invalid signature", async () => {
+    const app = await buildApp();
+
+    const { identityId } = await createIdentity(app);
+    const wrongSigner = createSigner();
+
+    const bondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId,
+        amountCents: 1000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "signed request"
+      }
+    })).json().bondId as string;
+
+    const actionBody = {
+      identityId,
+      actionType: "signed-action",
+      payload: { note: "wrong signer" },
+      bondId
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: signHeaders(wrongSigner.privateKey, actionBody)
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: "INVALID_SIGNATURE",
+      message: "Signature is invalid"
+    });
+  });
+
+  it("rejects stale action signatures", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+
+    const bondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId,
+        amountCents: 1000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "stale signature"
+      }
+    })).json().bondId as string;
+
+    const actionBody = {
+      identityId,
+      actionType: "stale-action",
+      payload: { note: "stale" },
+      bondId
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: signHeaders(signer.privateKey, actionBody, `${Date.now() - 61_000}`)
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: "INVALID_SIGNATURE",
+      message: "Signature timestamp is invalid"
     });
   });
 });

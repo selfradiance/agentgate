@@ -8,10 +8,41 @@ import {
   lockBondSchema,
   resolveActionSchema
 } from "./schemas";
+import { isFreshTimestamp, verifyRequestSignature } from "./signing";
 import { IbpService } from "./service";
 
 export interface AppOptions {
   dbPath?: string;
+}
+
+function getHeaderValue(header: string | string[] | undefined) {
+  if (Array.isArray(header)) {
+    return header[0];
+  }
+
+  return header;
+}
+
+function assertSignedRequest(
+  publicKey: string,
+  timestampHeader: string | string[] | undefined,
+  signatureHeader: string | string[] | undefined,
+  body: unknown
+) {
+  const timestamp = getHeaderValue(timestampHeader);
+  const signature = getHeaderValue(signatureHeader);
+
+  if (!timestamp || !signature) {
+    throw new AppError(401, "INVALID_SIGNATURE", "Signature headers are required");
+  }
+
+  if (!isFreshTimestamp(timestamp)) {
+    throw new AppError(401, "INVALID_SIGNATURE", "Signature timestamp is invalid");
+  }
+
+  if (!verifyRequestSignature(publicKey, timestamp, body, signature)) {
+    throw new AppError(401, "INVALID_SIGNATURE", "Signature is invalid");
+  }
 }
 
 export function createApp(options: AppOptions = {}): FastifyInstance {
@@ -57,16 +88,30 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
   });
 
   app.post("/v1/actions/execute", async (request, reply) => {
-    const body = executeActionSchema.parse(request.body);
+    const rawBody = request.body;
+    const body = executeActionSchema.parse(rawBody);
+    assertSignedRequest(
+      service.getIdentityPublicKey(body.identityId),
+      request.headers["x-agentgate-timestamp"],
+      request.headers["x-agentgate-signature"],
+      rawBody
+    );
     reply.status(201).send(service.executeAction(body));
   });
 
   app.post("/v1/actions/:actionId/resolve", async (request, reply) => {
     const params = request.params as { actionId?: string };
-    const body = resolveActionSchema.parse(request.body);
+    const rawBody = request.body;
+    const body = resolveActionSchema.parse(rawBody);
     if (!params.actionId) {
       throw new AppError(400, "VALIDATION_ERROR", "Action id is required");
     }
+    assertSignedRequest(
+      service.getActionIdentityPublicKey(params.actionId),
+      request.headers["x-agentgate-timestamp"],
+      request.headers["x-agentgate-signature"],
+      rawBody
+    );
     reply.send(service.resolveAction(params.actionId, body));
   });
 

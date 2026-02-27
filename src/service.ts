@@ -210,6 +210,15 @@ export class IbpService {
     return stats;
   }
 
+  getIdentityPublicKey(identityId: string) {
+    return this.getIdentityOrThrow(identityId).public_key;
+  }
+
+  getActionIdentityPublicKey(actionId: string) {
+    const action = this.getActionOrThrow(actionId);
+    return this.getIdentityOrThrow(action.identity_id).public_key;
+  }
+
   private getIdentityOrThrow(identityId: string) {
     const record = this.db
       .prepare(`SELECT id, public_key, created_at FROM identities WHERE id = ?`)

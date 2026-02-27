@@ -1,7 +1,12 @@
 import { z } from "zod";
+import { isEd25519PublicKey } from "./signing";
 
 export const createIdentitySchema = z.object({
-  publicKey: z.string().trim().min(1, "publicKey is required")
+  publicKey: z
+    .string()
+    .trim()
+    .min(1, "publicKey is required")
+    .refine(isEd25519PublicKey, "publicKey must be a base64-encoded Ed25519 public key")
 });
 
 export const lockBondSchema = z.object({
