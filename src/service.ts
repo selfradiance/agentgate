@@ -3,18 +3,18 @@ import type Database from "better-sqlite3";
 import { AppError } from "./errors";
 import { scoreIdentity } from "./reputation";
 import type {
+  ActionRecord,
   BondRecord,
   BondStatus,
   IdentityRecord,
   IdentityStats,
-  OfferRecord,
   ResolveOutcome
 } from "./types";
 import type {
   CreateIdentityInput,
-  CreateOfferInput,
+  ExecuteActionInput,
   LockBondInput,
-  ResolveOfferInput
+  ResolveActionInput
 } from "./schemas";
 
 interface SettledAmounts {
@@ -22,7 +22,6 @@ interface SettledAmounts {
   burnedCents: number;
   slashedCents: number;
   bondStatus: BondStatus;
-  slashBps: number | null;
 }
 
 export class IbpService {
@@ -82,69 +81,59 @@ export class IbpService {
     };
   }
 
-  createOffer(input: CreateOfferInput) {
+  executeAction(input: ExecuteActionInput) {
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
-    this.assertBondCanBackOffer(bond, input.identityId);
+    this.assertBondCanBackAction(bond, input.identityId);
 
-    const id = `offer_${randomUUID()}`;
+    const id = `action_${randomUUID()}`;
     const createdAt = new Date().toISOString();
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO offers (
-            id, identity_id, listing_id, price_cents, message, bond_id, status, created_at
-          ) VALUES (
-            @id, @identity_id, @listing_id, @price_cents, @message, @bond_id, @status, @created_at
-          )`
-        )
-        .run({
-          id,
-          identity_id: input.identityId,
-          listing_id: input.listingId,
-          price_cents: input.priceCents,
-          message: input.message,
-          bond_id: input.bondId,
-          status: "open",
-          created_at: createdAt
-        });
-
-      this.db
-        .prepare(`UPDATE bonds SET status = 'committed' WHERE id = ?`)
-        .run(input.bondId);
-    });
-
-    tx();
+    this.db
+      .prepare(
+        `INSERT INTO actions (
+          id, identity_id, action_type, payload, bond_id, status, created_at
+        ) VALUES (
+          @id, @identity_id, @action_type, @payload, @bond_id, @status, @created_at
+        )`
+      )
+      .run({
+        id,
+        identity_id: input.identityId,
+        action_type: input.actionType,
+        payload: this.serializePayload(input.payload),
+        bond_id: input.bondId,
+        status: "open",
+        created_at: createdAt
+      });
 
     return {
-      offerId: id,
+      actionId: id,
       status: "open" as const
     };
   }
 
-  resolveOffer(offerId: string, input: ResolveOfferInput) {
-    const offer = this.getOfferOrThrow(offerId);
-    if (offer.status !== "open") {
-      throw new AppError(409, "OFFER_ALREADY_RESOLVED", "Offer has already been resolved");
+  resolveAction(actionId: string, input: ResolveActionInput) {
+    const action = this.getActionOrThrow(actionId);
+    if (action.status !== "open") {
+      throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
     }
 
-    const bond = this.getBondOrThrow(offer.bond_id);
-    const settlement = this.calculateSettlement(bond.amount_cents, input.outcome, input.slashBps);
+    const bond = this.getBondOrThrow(action.bond_id);
+    const settlement = this.calculateSettlement(bond.amount_cents, input.outcome);
     const resolvedAt = new Date().toISOString();
 
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `UPDATE offers
-           SET status = @status, resolved_at = @resolved_at, slash_bps = @slash_bps
+          `UPDATE actions
+           SET status = @status, resolved_at = @resolved_at
            WHERE id = @id`
         )
         .run({
-          id: offerId,
+          id: actionId,
           status: input.outcome,
-          resolved_at: resolvedAt,
-          slash_bps: settlement.slashBps
+          resolved_at: resolvedAt
         });
 
       this.db
@@ -170,7 +159,7 @@ export class IbpService {
     tx();
 
     return {
-      offerId,
+      actionId,
       outcome: input.outcome,
       refundCents: settlement.refundCents,
       burnedCents: settlement.burnedCents,
@@ -185,11 +174,10 @@ export class IbpService {
       .prepare(
         `SELECT
            (SELECT COUNT(*) FROM bonds WHERE identity_id = @identity_id) AS locks,
-           (SELECT COUNT(*) FROM offers WHERE identity_id = @identity_id) AS offers,
-           (SELECT COUNT(*) FROM offers WHERE identity_id = @identity_id AND status = 'accepted') AS accepts,
-           (SELECT COUNT(*) FROM offers WHERE identity_id = @identity_id AND status = 'rejected') AS rejects,
-           (SELECT COUNT(*) FROM offers WHERE identity_id = @identity_id AND status = 'expired') AS expires,
-           (SELECT COUNT(*) FROM offers WHERE identity_id = @identity_id AND status = 'malicious') AS slashes`
+           (SELECT COUNT(*) FROM actions WHERE identity_id = @identity_id) AS actions,
+           (SELECT COUNT(*) FROM actions WHERE identity_id = @identity_id AND status = 'success') AS successes,
+           (SELECT COUNT(*) FROM actions WHERE identity_id = @identity_id AND status = 'failed') AS failures,
+           (SELECT COUNT(*) FROM actions WHERE identity_id = @identity_id AND status = 'malicious') AS malicious`
       )
       .get({ identity_id: identityId }) as IdentityStats;
 
@@ -201,6 +189,25 @@ export class IbpService {
         stats
       }
     };
+  }
+
+  getStats() {
+    const stats = this.db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM identities) AS totalIdentities,
+           (SELECT COUNT(*) FROM actions) AS totalActions,
+           (SELECT COUNT(*) FROM bonds WHERE status = 'active') AS totalActiveBonds,
+           (SELECT COALESCE(SUM(amount_cents), 0) FROM bonds WHERE status = 'active') AS totalLockedCents`
+      )
+      .get() as {
+        totalIdentities: number;
+        totalActions: number;
+        totalActiveBonds: number;
+        totalLockedCents: number;
+      };
+
+    return stats;
   }
 
   private getIdentityOrThrow(identityId: string) {
@@ -227,19 +234,19 @@ export class IbpService {
     return record;
   }
 
-  private getOfferOrThrow(offerId: string) {
+  private getActionOrThrow(actionId: string) {
     const record = this.db
-      .prepare(`SELECT * FROM offers WHERE id = ?`)
-      .get(offerId) as OfferRecord | undefined;
+      .prepare(`SELECT * FROM actions WHERE id = ?`)
+      .get(actionId) as ActionRecord | undefined;
 
     if (!record) {
-      throw new AppError(404, "OFFER_NOT_FOUND", "Offer not found");
+      throw new AppError(404, "ACTION_NOT_FOUND", "Action not found");
     }
 
     return record;
   }
 
-  private assertBondCanBackOffer(bond: BondRecord, identityId: string) {
+  private assertBondCanBackAction(bond: BondRecord, identityId: string) {
     if (bond.identity_id !== identityId) {
       throw new AppError(409, "BOND_IDENTITY_MISMATCH", "Bond does not belong to the supplied identity");
     }
@@ -254,43 +261,53 @@ export class IbpService {
         .run(new Date().toISOString(), bond.id);
       throw new AppError(409, "BOND_EXPIRED", "Bond has expired");
     }
+
+    const existingAction = this.db
+      .prepare(`SELECT id FROM actions WHERE bond_id = ? LIMIT 1`)
+      .get(bond.id) as { id: string } | undefined;
+
+    if (existingAction) {
+      throw new AppError(409, "BOND_NOT_ACTIVE", "Bond is not active");
+    }
   }
 
-  private calculateSettlement(
-    amountCents: number,
-    outcome: ResolveOutcome,
-    slashBps?: number
-  ): SettledAmounts {
-    if (outcome === "accepted" || outcome === "rejected") {
+  private calculateSettlement(amountCents: number, outcome: ResolveOutcome): SettledAmounts {
+    if (outcome === "success") {
       return {
         refundCents: amountCents,
         burnedCents: 0,
         slashedCents: 0,
-        bondStatus: "released",
-        slashBps: null
+        bondStatus: "released"
       };
     }
 
-    if (outcome === "expired") {
+    if (outcome === "failed") {
       const refundCents = Math.floor(amountCents * 0.95);
       return {
         refundCents,
         burnedCents: amountCents - refundCents,
         slashedCents: 0,
-        bondStatus: "expired",
-        slashBps: null
+        bondStatus: "burned"
       };
     }
 
-    const appliedSlashBps = slashBps ?? 10000;
-    const slashedCents = Math.floor((amountCents * appliedSlashBps) / 10000);
-
     return {
-      refundCents: amountCents - slashedCents,
+      refundCents: 0,
       burnedCents: 0,
-      slashedCents,
-      bondStatus: "slashed",
-      slashBps: appliedSlashBps
+      slashedCents: amountCents,
+      bondStatus: "slashed"
     };
+  }
+
+  private serializePayload(payload: unknown) {
+    if (payload === undefined) {
+      return null;
+    }
+
+    if (typeof payload === "string") {
+      return payload;
+    }
+
+    return JSON.stringify(payload);
   }
 }

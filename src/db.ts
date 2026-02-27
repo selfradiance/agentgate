@@ -40,17 +40,15 @@ export function createDatabase(filename: string): DatabaseHandle {
       FOREIGN KEY(identity_id) REFERENCES identities(id)
     );
 
-    CREATE TABLE IF NOT EXISTS offers (
+    CREATE TABLE IF NOT EXISTS actions (
       id TEXT PRIMARY KEY,
       identity_id TEXT NOT NULL,
-      listing_id TEXT NOT NULL,
-      price_cents INTEGER NOT NULL,
-      message TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      payload TEXT,
       bond_id TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       resolved_at TEXT,
-      slash_bps INTEGER,
       FOREIGN KEY(identity_id) REFERENCES identities(id),
       FOREIGN KEY(bond_id) REFERENCES bonds(id)
     );

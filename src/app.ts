@@ -4,9 +4,9 @@ import { createDatabase } from "./db";
 import { AppError } from "./errors";
 import {
   createIdentitySchema,
-  createOfferSchema,
+  executeActionSchema,
   lockBondSchema,
-  resolveOfferSchema
+  resolveActionSchema
 } from "./schemas";
 import { IbpService } from "./service";
 
@@ -56,18 +56,18 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     reply.status(201).send(service.lockBond(body));
   });
 
-  app.post("/v1/offers", async (request, reply) => {
-    const body = createOfferSchema.parse(request.body);
-    reply.status(201).send(service.createOffer(body));
+  app.post("/v1/actions/execute", async (request, reply) => {
+    const body = executeActionSchema.parse(request.body);
+    reply.status(201).send(service.executeAction(body));
   });
 
-  app.post("/v1/offers/:id/resolve", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = resolveOfferSchema.parse(request.body);
-    if (!params.id) {
-      throw new AppError(400, "VALIDATION_ERROR", "Offer id is required");
+  app.post("/v1/actions/:actionId/resolve", async (request, reply) => {
+    const params = request.params as { actionId?: string };
+    const body = resolveActionSchema.parse(request.body);
+    if (!params.actionId) {
+      throw new AppError(400, "VALIDATION_ERROR", "Action id is required");
     }
-    reply.send(service.resolveOffer(params.id, body));
+    reply.send(service.resolveAction(params.actionId, body));
   });
 
   app.get("/v1/identities/:id", async (request, reply) => {
@@ -76,6 +76,10 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       throw new AppError(400, "VALIDATION_ERROR", "Identity id is required");
     }
     reply.send(service.getIdentitySummary(params.id));
+  });
+
+  app.get("/v1/stats", async (_request, reply) => {
+    reply.send(service.getStats());
   });
 
   return app;

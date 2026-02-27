@@ -1,12 +1,5 @@
 import type { IdentityStats } from "./types";
 
 export function scoreIdentity(stats: IdentityStats): number {
-  return (
-    stats.locks * 2 +
-    stats.offers * 3 +
-    stats.accepts * 10 +
-    stats.rejects -
-    stats.expires * 5 -
-    stats.slashes * 20
-  );
+  return stats.locks * 2 + stats.actions * 3 + stats.successes * 10 - stats.failures * 5 - stats.malicious * 20;
 }

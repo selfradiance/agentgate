@@ -20,7 +20,135 @@ afterEach(async () => {
 });
 
 describe("IBP state transitions", () => {
-  it("refunds 100% for accepted offers and updates identity stats", async () => {
+  it("returns aggregate stats", async () => {
+    const app = await buildApp();
+
+    const firstIdentityId = (await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      payload: { publicKey: "pk_stats_1" }
+    })).json().identityId as string;
+
+    const secondIdentityId = (await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      payload: { publicKey: "pk_stats_2" }
+    })).json().identityId as string;
+
+    const activeBondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId: firstIdentityId,
+        amountCents: 1000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "active stats bond"
+      }
+    })).json().bondId as string;
+
+    const usedBondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId: secondIdentityId,
+        amountCents: 2000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "used stats bond"
+      }
+    })).json().bondId as string;
+
+    await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: {
+        identityId: secondIdentityId,
+        actionType: "stats-action",
+        payload: { note: "stats action" },
+        bondId: usedBondId
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/stats"
+    });
+
+    expect(activeBondId).toContain("bond_");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      totalIdentities: 2,
+      totalActions: 1,
+      totalActiveBonds: 2,
+      totalLockedCents: 3000
+    });
+  });
+
+  it("removes an action-backed bond from active stats only after resolution", async () => {
+    const app = await buildApp();
+
+    const identityId = (await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      payload: { publicKey: "pk_stats_resolution" }
+    })).json().identityId as string;
+
+    const bondId = (await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      payload: {
+        identityId,
+        amountCents: 1500,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: "resolution stats bond"
+      }
+    })).json().bondId as string;
+
+    const actionId = (await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: {
+        identityId,
+        actionType: "open-stats-action",
+        payload: "open stats action",
+        bondId
+      }
+    })).json().actionId as string;
+
+    const openStatsResponse = await app.inject({
+      method: "GET",
+      url: "/v1/stats"
+    });
+
+    expect(openStatsResponse.json()).toEqual({
+      totalIdentities: 1,
+      totalActions: 1,
+      totalActiveBonds: 1,
+      totalLockedCents: 1500
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/actions/${actionId}/resolve`,
+      payload: { outcome: "failed" }
+    });
+
+    const resolvedStatsResponse = await app.inject({
+      method: "GET",
+      url: "/v1/stats"
+    });
+
+    expect(resolvedStatsResponse.json()).toEqual({
+      totalIdentities: 1,
+      totalActions: 1,
+      totalActiveBonds: 0,
+      totalLockedCents: 0
+    });
+  });
+
+  it("refunds 100% for successful actions and updates identity stats", async () => {
     const app = await buildApp();
 
     const identityResponse = await app.inject({
@@ -43,29 +171,30 @@ describe("IBP state transitions", () => {
     });
     const bondId = bondResponse.json().bondId as string;
 
-    const offerResponse = await app.inject({
+    const actionResponse = await app.inject({
       method: "POST",
-      url: "/v1/offers",
+      url: "/v1/actions/execute",
       payload: {
         identityId,
-        listingId: "listing-123",
-        priceCents: 25000,
-        message: "Ready to proceed",
+        actionType: "purchase-intent",
+        payload: {
+          note: "Ready to proceed"
+        },
         bondId
       }
     });
-    const offerId = offerResponse.json().offerId as string;
+    const actionId = actionResponse.json().actionId as string;
 
     const resolveResponse = await app.inject({
       method: "POST",
-      url: `/v1/offers/${offerId}/resolve`,
-      payload: { outcome: "accepted" }
+      url: `/v1/actions/${actionId}/resolve`,
+      payload: { outcome: "success" }
     });
 
     expect(resolveResponse.statusCode).toBe(200);
     expect(resolveResponse.json()).toMatchObject({
-      offerId,
-      outcome: "accepted",
+      actionId,
+      outcome: "success",
       refundCents: 1000,
       burnedCents: 0,
       slashedCents: 0
@@ -84,17 +213,16 @@ describe("IBP state transitions", () => {
         score: 15,
         stats: {
           locks: 1,
-          offers: 1,
-          accepts: 1,
-          rejects: 0,
-          expires: 0,
-          slashes: 0
+          actions: 1,
+          successes: 1,
+          failures: 0,
+          malicious: 0
         }
       }
     });
   });
 
-  it("burns 5% on expired offers", async () => {
+  it("burns 5% on failed actions", async () => {
     const app = await buildApp();
 
     const identityId = (await app.inject({
@@ -115,34 +243,33 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
-    const offerId = (await app.inject({
+    const actionId = (await app.inject({
       method: "POST",
-      url: "/v1/offers",
+      url: "/v1/actions/execute",
       payload: {
         identityId,
-        listingId: "listing-456",
-        priceCents: 1200,
-        message: "Offer with expiry risk",
+        actionType: "timeout-action",
+        payload: "Action with failure risk",
         bondId
       }
-    })).json().offerId as string;
+    })).json().actionId as string;
 
     const response = await app.inject({
       method: "POST",
-      url: `/v1/offers/${offerId}/resolve`,
-      payload: { outcome: "expired" }
+      url: `/v1/actions/${actionId}/resolve`,
+      payload: { outcome: "failed" }
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      outcome: "expired",
+      outcome: "failed",
       refundCents: 949,
       burnedCents: 50,
       slashedCents: 0
     });
   });
 
-  it("defaults malicious resolution to a full slash", async () => {
+  it("slashes 100% for malicious actions", async () => {
     const app = await buildApp();
 
     const identityId = (await app.inject({
@@ -163,21 +290,22 @@ describe("IBP state transitions", () => {
       }
     })).json().bondId as string;
 
-    const offerId = (await app.inject({
+    const actionId = (await app.inject({
       method: "POST",
-      url: "/v1/offers",
+      url: "/v1/actions/execute",
       payload: {
         identityId,
-        listingId: "listing-789",
-        priceCents: 4500,
-        message: "Bad faith offer",
+        actionType: "bad-faith-action",
+        payload: {
+          reason: "Bad faith action"
+        },
         bondId
       }
-    })).json().offerId as string;
+    })).json().actionId as string;
 
     const response = await app.inject({
       method: "POST",
-      url: `/v1/offers/${offerId}/resolve`,
+      url: `/v1/actions/${actionId}/resolve`,
       payload: { outcome: "malicious" }
     });
 
@@ -190,7 +318,7 @@ describe("IBP state transitions", () => {
     });
   });
 
-  it("rejects offers that reference inactive bonds", async () => {
+  it("rejects actions that reference inactive bonds", async () => {
     const app = await buildApp();
 
     const identityId = (await app.inject({
@@ -213,30 +341,28 @@ describe("IBP state transitions", () => {
 
     await app.inject({
       method: "POST",
-      url: "/v1/offers",
+      url: "/v1/actions/execute",
       payload: {
         identityId,
-        listingId: "listing-001",
-        priceCents: 1200,
-        message: "First offer",
+        actionType: "first-action",
+        payload: "First action",
         bondId
       }
     });
 
-    const secondOfferResponse = await app.inject({
+    const secondActionResponse = await app.inject({
       method: "POST",
-      url: "/v1/offers",
+      url: "/v1/actions/execute",
       payload: {
         identityId,
-        listingId: "listing-002",
-        priceCents: 1300,
-        message: "Second offer",
+        actionType: "second-action",
+        payload: "Second action",
         bondId
       }
     });
 
-    expect(secondOfferResponse.statusCode).toBe(409);
-    expect(secondOfferResponse.json()).toEqual({
+    expect(secondActionResponse.statusCode).toBe(409);
+    expect(secondActionResponse.json()).toEqual({
       error: "BOND_NOT_ACTIVE",
       message: "Bond is not active"
     });

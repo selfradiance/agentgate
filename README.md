@@ -1,36 +1,47 @@
-# Intent Bond Protocol Prototype
+# AgentGate
 
-Minimal local web service for an Intent Bond Protocol (IBP) prototype. It uses Fastify, TypeScript, and SQLite and exposes a small REST API for identities, bond locks, offers, and offer resolution.
+AgentGate is a small backend microservice for stake-gated actions: an identity locks a bond, executes an action against that bond, and later resolves the action to refund, burn, or slash the locked capital according to the outcome.
 
-## Requirements
+## Quickstart
 
-- Node.js 20+
-- npm 10+
-
-## Run
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Run the development server:
+
+```bash
 npm run dev
 ```
 
-The server listens on `http://127.0.0.1:3000` by default and stores data in `data/ibp.sqlite`.
+Run the test suite:
 
-## Scripts
+```bash
+npm run test
+```
 
-- `npm run dev` starts the service with reload via `tsx`
-- `npm run build` compiles TypeScript to `dist/`
-- `npm run test` runs the Vitest suite
-- `npm run lint` runs a strict TypeScript check
+The server listens on `http://127.0.0.1:3000` by default and uses local SQLite storage at `data/ibp.sqlite`.
 
-## Example API usage
+## API Summary
+
+- `POST /v1/identities`
+- `POST /v1/bonds/lock`
+- `POST /v1/actions/execute`
+- `POST /v1/actions/:id/resolve`
+- `GET /v1/stats`
+
+## cURL Examples
 
 Create an identity:
 
 ```bash
 curl -s http://127.0.0.1:3000/v1/identities \
   -H 'content-type: application/json' \
-  -d '{"publicKey":"pk_demo"}'
+  -d '{
+    "publicKey":"pk_demo"
+  }'
 ```
 
 Lock a bond:
@@ -43,46 +54,58 @@ curl -s http://127.0.0.1:3000/v1/bonds/lock \
     "amountCents":1500,
     "currency":"USD",
     "ttlSeconds":600,
-    "reason":"serious buyer signal"
+    "reason":"serious intent signal"
   }'
 ```
 
-Submit an offer:
+Execute an action:
 
 ```bash
-curl -s http://127.0.0.1:3000/v1/offers \
+curl -s http://127.0.0.1:3000/v1/actions/execute \
   -H 'content-type: application/json' \
   -d '{
     "identityId":"id_...",
-    "listingId":"listing-123",
-    "priceCents":250000,
-    "message":"Ready to close this week",
-    "bondId":"bond_..."
+    "bondId":"bond_...",
+    "actionType":"listing-interest",
+    "payload":{"note":"Ready to proceed"}
   }'
 ```
 
-Resolve an offer:
+Resolve an action as success:
 
 ```bash
-curl -s http://127.0.0.1:3000/v1/offers/offer_.../resolve \
+curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
   -H 'content-type: application/json' \
-  -d '{"outcome":"accepted"}'
+  -d '{
+    "outcome":"success"
+  }'
 ```
 
-Fetch identity reputation:
+Resolve an action as malicious:
 
 ```bash
-curl -s http://127.0.0.1:3000/v1/identities/id_...
+curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
+  -H 'content-type: application/json' \
+  -d '{
+    "outcome":"malicious"
+  }'
 ```
 
-## Resolution rules
+Fetch aggregate stats:
 
-- `accepted` and `rejected` refund 100% of the bond
-- `expired` refunds 95% and burns 5%
-- `malicious` slashes 100% by default, or a custom `slashBps` if supplied
+```bash
+curl -s http://127.0.0.1:3000/v1/stats
+```
 
-## Notes
+## Non-goals / Limitations
 
-- A bond can back one offer.
-- Offer submission requires an active, unexpired bond owned by the same identity.
-- Reputation is derived from bond and offer counts with a simple score formula in [src/reputation.ts](/Users/jamestoole/Documents/New project/src/reputation.ts).
+- Not production-ready escrow.
+- No real signature verification yet.
+- No KYC.
+- Local SQLite only.
+
+## Roadmap (short)
+
+- Request signing.
+- Pluggable storage.
+- Optional on-chain escrow.

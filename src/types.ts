@@ -1,6 +1,6 @@
-export type BondStatus = "active" | "committed" | "released" | "expired" | "slashed";
-export type OfferStatus = "open" | "accepted" | "rejected" | "expired" | "malicious";
-export type ResolveOutcome = Exclude<OfferStatus, "open">;
+export type BondStatus = "active" | "released" | "expired" | "burned" | "slashed";
+export type ActionStatus = "open" | "success" | "failed" | "malicious";
+export type ResolveOutcome = Exclude<ActionStatus, "open">;
 
 export interface IdentityRecord {
   id: string;
@@ -24,24 +24,21 @@ export interface BondRecord {
   slashed_cents: number;
 }
 
-export interface OfferRecord {
+export interface ActionRecord {
   id: string;
   identity_id: string;
-  listing_id: string;
-  price_cents: number;
-  message: string;
+  action_type: string;
+  payload: string | null;
   bond_id: string;
-  status: OfferStatus;
+  status: ActionStatus;
   created_at: string;
   resolved_at: string | null;
-  slash_bps: number | null;
 }
 
 export interface IdentityStats {
   locks: number;
-  offers: number;
-  accepts: number;
-  rejects: number;
-  expires: number;
-  slashes: number;
+  actions: number;
+  successes: number;
+  failures: number;
+  malicious: number;
 }
