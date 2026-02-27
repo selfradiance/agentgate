@@ -4,7 +4,7 @@ import {
   sign,
   type KeyObject
 } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -51,6 +51,38 @@ async function createIdentity(app: ReturnType<typeof createApp>) {
   };
 }
 
+async function lockBond(
+  app: ReturnType<typeof createApp>,
+  identityId: string,
+  amountCents: number,
+  reason: string
+) {
+  return (await app.inject({
+    method: "POST",
+    url: "/v1/bonds/lock",
+    payload: {
+      identityId,
+      amountCents,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason
+    }
+  })).json().bondId as string;
+}
+
+async function executeSignedAction(
+  app: ReturnType<typeof createApp>,
+  signer: { privateKey: KeyObject },
+  body: Record<string, unknown>
+) {
+  return app.inject({
+    method: "POST",
+    url: "/v1/actions/execute",
+    payload: body,
+    headers: signHeaders(signer.privateKey, body)
+  });
+}
+
 async function buildApp() {
   const app = createApp({ dbPath: ":memory:" });
   apps.push(app);
@@ -59,6 +91,8 @@ async function buildApp() {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
+
   while (apps.length > 0) {
     const app = apps.pop();
     if (app) {
@@ -74,29 +108,8 @@ describe("IBP state transitions", () => {
     const { identityId: firstIdentityId } = await createIdentity(app);
     const { identityId: secondIdentityId, signer } = await createIdentity(app);
 
-    const activeBondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId: firstIdentityId,
-        amountCents: 1000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "active stats bond"
-      }
-    })).json().bondId as string;
-
-    const usedBondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId: secondIdentityId,
-        amountCents: 2000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "used stats bond"
-      }
-    })).json().bondId as string;
+    const activeBondId = await lockBond(app, firstIdentityId, 1000, "active stats bond");
+    const usedBondId = await lockBond(app, secondIdentityId, 2000, "used stats bond");
 
     const actionBody = {
       identityId: secondIdentityId,
@@ -105,12 +118,7 @@ describe("IBP state transitions", () => {
       bondId: usedBondId
     };
 
-    await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    });
+    await executeSignedAction(app, signer, actionBody);
 
     const response = await app.inject({
       method: "GET",
@@ -132,17 +140,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1500,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "resolution stats bond"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1500, "resolution stats bond");
 
     const actionBody = {
       identityId,
@@ -151,12 +149,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    const actionId = (await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    })).json().actionId as string;
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
     const openStatsResponse = await app.inject({
       method: "GET",
@@ -197,18 +190,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondResponse = await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1000,
-        currency: "usd",
-        ttlSeconds: 300,
-        reason: "serious intent"
-      }
-    });
-    const bondId = bondResponse.json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1000, "serious intent");
 
     const actionBody = {
       identityId,
@@ -219,12 +201,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    const actionResponse = await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    });
+    const actionResponse = await executeSignedAction(app, signer, actionBody);
     const actionId = actionResponse.json().actionId as string;
 
     const resolveBody = { outcome: "success" as const };
@@ -271,17 +248,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 999,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "holding bond"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 999, "holding bond");
 
     const actionBody = {
       identityId,
@@ -290,12 +257,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    const actionId = (await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    })).json().actionId as string;
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
     const resolveBody = { outcome: "failed" as const };
     const response = await app.inject({
@@ -319,17 +281,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 5000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "spam deterrence"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 5000, "spam deterrence");
 
     const actionBody = {
       identityId,
@@ -340,12 +292,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    const actionId = (await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    })).json().actionId as string;
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
     const resolveBody = { outcome: "malicious" as const };
     const response = await app.inject({
@@ -369,17 +316,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1200,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "single use bond"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1200, "single use bond");
 
     const firstActionBody = {
       identityId,
@@ -388,12 +325,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: firstActionBody,
-      headers: signHeaders(signer.privateKey, firstActionBody)
-    });
+    await executeSignedAction(app, signer, firstActionBody);
 
     const secondActionBody = {
       identityId,
@@ -402,12 +334,7 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    const secondActionResponse = await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: secondActionBody,
-      headers: signHeaders(signer.privateKey, secondActionBody)
-    });
+    const secondActionResponse = await executeSignedAction(app, signer, secondActionBody);
 
     expect(secondActionResponse.statusCode).toBe(409);
     expect(secondActionResponse.json()).toEqual({
@@ -421,17 +348,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "field order"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1000, "field order");
 
     const actionBody = {
       bondId,
@@ -440,12 +357,7 @@ describe("IBP state transitions", () => {
       identityId
     };
 
-    const response = await app.inject({
-      method: "POST",
-      url: "/v1/actions/execute",
-      payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
-    });
+    const response = await executeSignedAction(app, signer, actionBody);
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({
@@ -459,17 +371,7 @@ describe("IBP state transitions", () => {
     const { identityId } = await createIdentity(app);
     const wrongSigner = createSigner();
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "signed request"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1000, "signed request");
 
     const actionBody = {
       identityId,
@@ -497,17 +399,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = (await app.inject({
-      method: "POST",
-      url: "/v1/bonds/lock",
-      payload: {
-        identityId,
-        amountCents: 1000,
-        currency: "USD",
-        ttlSeconds: 300,
-        reason: "stale signature"
-      }
-    })).json().bondId as string;
+    const bondId = await lockBond(app, identityId, 1000, "stale signature");
 
     const actionBody = {
       identityId,
@@ -527,6 +419,136 @@ describe("IBP state transitions", () => {
     expect(response.json()).toEqual({
       error: "INVALID_SIGNATURE",
       message: "Signature timestamp is invalid"
+    });
+  });
+
+  it("rate limits the 11th execute request within 60 seconds", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-27T12:00:00.000Z"));
+
+    const app = await buildApp();
+    const { identityId, signer } = await createIdentity(app);
+
+    for (let index = 0; index < 10; index += 1) {
+      const bondId = await lockBond(app, identityId, 1000, `rate-limit-${index}`);
+      const response = await executeSignedAction(app, signer, {
+        identityId,
+        bondId,
+        actionType: "rate-limit-action",
+        payload: { attempt: index + 1 }
+      });
+
+      expect(response.statusCode).toBe(201);
+    }
+
+    const bondId = await lockBond(app, identityId, 1000, "rate-limit-11");
+    const response = await executeSignedAction(app, signer, {
+      identityId,
+      bondId,
+      actionType: "rate-limit-action",
+      payload: { attempt: 11 }
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toEqual({
+      error: "RATE_LIMIT_EXCEEDED",
+      message: "Identity is limited to 10 action executes per 60 seconds"
+    });
+  });
+
+  it("enforces progressive minimum bond thresholds", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-27T12:00:00.000Z"));
+
+    const app = await buildApp();
+    const { identityId, signer } = await createIdentity(app);
+
+    for (let index = 0; index < 10; index += 1) {
+      const bondId = await lockBond(app, identityId, 1000, `progressive-a-${index}`);
+      const response = await executeSignedAction(app, signer, {
+        identityId,
+        bondId,
+        actionType: "progressive-action",
+        payload: { attempt: index + 1 }
+      });
+
+      expect(response.statusCode).toBe(201);
+    }
+
+    vi.setSystemTime(new Date("2026-02-27T12:01:01.000Z"));
+
+    const eleventhBondId = await lockBond(app, identityId, 1000, "progressive-a-11");
+    const eleventhResponse = await executeSignedAction(app, signer, {
+      identityId,
+      bondId: eleventhBondId,
+      actionType: "progressive-action",
+      payload: { attempt: 11 }
+    });
+
+    expect(eleventhResponse.statusCode).toBe(201);
+
+    const tooSmallBondId = await lockBond(app, identityId, 1000, "progressive-too-small-2000");
+    const tooSmallResponse = await executeSignedAction(app, signer, {
+      identityId,
+      bondId: tooSmallBondId,
+      actionType: "progressive-action",
+      payload: { attempt: 12 }
+    });
+
+    expect(tooSmallResponse.statusCode).toBe(409);
+    expect(tooSmallResponse.json()).toEqual({
+      error: "MIN_BOND_REQUIRED",
+      message: "Minimum bond is 2000 cents for this identity's recent action volume"
+    });
+
+    const validMidBondId = await lockBond(app, identityId, 2000, "progressive-valid-2000");
+    const validMidResponse = await executeSignedAction(app, signer, {
+      identityId,
+      bondId: validMidBondId,
+      actionType: "progressive-action",
+      payload: { attempt: 13 }
+    });
+
+    expect(validMidResponse.statusCode).toBe(201);
+
+    vi.setSystemTime(new Date("2026-02-27T12:02:02.000Z"));
+
+    for (let index = 0; index < 8; index += 1) {
+      const bondId = await lockBond(app, identityId, 2000, `progressive-b-${index}`);
+      const response = await executeSignedAction(app, signer, {
+        identityId,
+        bondId,
+        actionType: "progressive-action",
+        payload: { attempt: 14 + index }
+      });
+
+      expect(response.statusCode).toBe(201);
+    }
+
+    vi.setSystemTime(new Date("2026-02-27T12:03:03.000Z"));
+
+    const thresholdBondId = await lockBond(app, identityId, 2000, "progressive-threshold-2000");
+    const thresholdResponse = await executeSignedAction(app, signer, {
+      identityId,
+      bondId: thresholdBondId,
+      actionType: "progressive-action",
+      payload: { attempt: 22 }
+    });
+
+    expect(thresholdResponse.statusCode).toBe(201);
+
+    const tooSmallHighBondId = await lockBond(app, identityId, 4000, "progressive-too-small-5000");
+    const tooSmallHighResponse = await executeSignedAction(app, signer, {
+      identityId,
+      bondId: tooSmallHighBondId,
+      actionType: "progressive-action",
+      payload: { attempt: 23 }
+    });
+
+    expect(tooSmallHighResponse.statusCode).toBe(409);
+    expect(tooSmallHighResponse.json()).toEqual({
+      error: "MIN_BOND_REQUIRED",
+      message: "Minimum bond is 5000 cents for this identity's recent action volume"
     });
   });
 });

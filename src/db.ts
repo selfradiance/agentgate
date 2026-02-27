@@ -52,6 +52,16 @@ export function createDatabase(filename: string): DatabaseHandle {
       FOREIGN KEY(identity_id) REFERENCES identities(id),
       FOREIGN KEY(bond_id) REFERENCES bonds(id)
     );
+
+    CREATE TABLE IF NOT EXISTS action_execute_buckets (
+      identity_id TEXT NOT NULL,
+      bucket_start INTEGER NOT NULL,
+      requested_at INTEGER NOT NULL,
+      FOREIGN KEY(identity_id) REFERENCES identities(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS action_execute_buckets_identity_requested_at_idx
+      ON action_execute_buckets(identity_id, requested_at);
   `);
 
   return {

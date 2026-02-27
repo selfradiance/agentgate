@@ -39,6 +39,14 @@ SHA256(timestamp + JSON.stringify(body))
 
 Timestamps older than 60 seconds are rejected.
 
+## Hardening
+
+- `POST /v1/actions/execute` is limited to 10 executes per identity in any 60-second window.
+- AgentGate tracks execute requests in SQLite using minute-bucketed request records.
+- Progressive minimum bond rules apply to recent action volume:
+- More than 10 actions in the last 10 minutes requires `amountCents >= 2000`.
+- More than 20 actions in the last 10 minutes requires `amountCents >= 5000`.
+
 ## API Summary
 
 - `POST /v1/identities`

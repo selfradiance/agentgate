@@ -88,24 +88,34 @@ export class IbpService {
     this.assertBondCanBackAction(bond, input.identityId);
 
     const id = `action_${randomUUID()}`;
+    const nowMs = Date.now();
     const createdAt = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO actions (
-          id, identity_id, action_type, payload, bond_id, status, created_at
-        ) VALUES (
-          @id, @identity_id, @action_type, @payload, @bond_id, @status, @created_at
-        )`
-      )
-      .run({
-        id,
-        identity_id: input.identityId,
-        action_type: input.actionType,
-        payload: this.serializePayload(input.payload),
-        bond_id: input.bondId,
-        status: "open",
-        created_at: createdAt
-      });
+    const tx = this.db.transaction(() => {
+      this.assertExecuteRateLimit(input.identityId, nowMs);
+      this.assertProgressiveMinBond(input.identityId, bond.amount_cents, nowMs);
+
+      this.db
+        .prepare(
+          `INSERT INTO actions (
+            id, identity_id, action_type, payload, bond_id, status, created_at
+          ) VALUES (
+            @id, @identity_id, @action_type, @payload, @bond_id, @status, @created_at
+          )`
+        )
+        .run({
+          id,
+          identity_id: input.identityId,
+          action_type: input.actionType,
+          payload: this.serializePayload(input.payload),
+          bond_id: input.bondId,
+          status: "open",
+          created_at: createdAt
+        });
+
+      this.recordExecuteAttempt(input.identityId, nowMs);
+    });
+
+    tx();
 
     return {
       actionId: id,
@@ -280,6 +290,67 @@ export class IbpService {
     }
   }
 
+  private assertExecuteRateLimit(identityId: string, nowMs: number) {
+    const recentRequests = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM action_execute_buckets
+         WHERE identity_id = @identity_id
+           AND bucket_start >= @oldest_bucket_start
+           AND requested_at >= @window_start`
+      )
+      .get({
+        identity_id: identityId,
+        oldest_bucket_start: this.getBucketStart(nowMs - 60_000),
+        window_start: nowMs - 60_000
+      }) as { count: number };
+
+    if (recentRequests.count >= 10) {
+      throw new AppError(
+        429,
+        "RATE_LIMIT_EXCEEDED",
+        "Identity is limited to 10 action executes per 60 seconds"
+      );
+    }
+  }
+
+  private assertProgressiveMinBond(identityId: string, amountCents: number, nowMs: number) {
+    const recentActions = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM actions
+         WHERE identity_id = @identity_id
+           AND created_at >= @window_start`
+      )
+      .get({
+        identity_id: identityId,
+        window_start: new Date(nowMs - 10 * 60_000).toISOString()
+      }) as { count: number };
+
+    const minimumBondCents = recentActions.count > 20 ? 5000 : recentActions.count > 10 ? 2000 : 0;
+
+    if (minimumBondCents > 0 && amountCents < minimumBondCents) {
+      throw new AppError(
+        409,
+        "MIN_BOND_REQUIRED",
+        `Minimum bond is ${minimumBondCents} cents for this identity's recent action volume`
+      );
+    }
+  }
+
+  private recordExecuteAttempt(identityId: string, nowMs: number) {
+    this.db
+      .prepare(
+        `INSERT INTO action_execute_buckets (identity_id, bucket_start, requested_at)
+         VALUES (@identity_id, @bucket_start, @requested_at)`
+      )
+      .run({
+        identity_id: identityId,
+        bucket_start: this.getBucketStart(nowMs),
+        requested_at: nowMs
+      });
+  }
+
   private calculateSettlement(amountCents: number, outcome: ResolveOutcome): SettledAmounts {
     if (outcome === "success") {
       return {
@@ -318,5 +389,9 @@ export class IbpService {
     }
 
     return JSON.stringify(payload);
+  }
+
+  private getBucketStart(timestampMs: number) {
+    return Math.floor(timestampMs / 60_000) * 60_000;
   }
 }
