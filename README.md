@@ -24,6 +24,20 @@ npm run test
 
 The server listens on `http://127.0.0.1:3000` by default and uses local SQLite storage at `data/ibp.sqlite`.
 
+## Example Integration
+
+1. Start AgentGate:
+
+```bash
+npm run dev
+```
+
+2. In another terminal, run the toy client:
+
+```bash
+npm run example:toy-agent
+```
+
 ## Request Signing
 
 `POST /v1/actions/execute` and `POST /v1/actions/:id/resolve` require:
