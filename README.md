@@ -2,6 +2,16 @@
 
 AgentGate is a small backend microservice for stake-gated actions: an identity locks a bond, executes an action against that bond, and later resolves the action to refund, burn, or slash the locked capital according to the outcome.
 
+## Feedback wanted
+
+If you starred this repo (or you’re curious), I’d love 2 minutes of feedback:
+
+1) What use-case do you imagine for AgentGate / MarketGate?
+2) What’s the biggest security risk or failure mode you’d worry about?
+3) What’s the smallest feature or example that would make you try it?
+
+Post here: **Discussions → “Feedback thread”** (or start a new discussion if you prefer).
+
 ## MarketGate demo (AgentGate + mock exchange)
 
 This repo includes a local “market-style” demo showing how a signed + bonded agent action can be gated and then executed against a market API.
