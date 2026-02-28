@@ -16,7 +16,7 @@ import type {
   LockBondInput,
   ResolveActionInput
 } from "./schemas";
-
+import { postJson } from "./http";
 interface SettledAmounts {
   refundCents: number;
   burnedCents: number;
@@ -81,7 +81,7 @@ export class IbpService {
     };
   }
 
-  executeAction(input: ExecuteActionInput) {
+      async executeAction(input: ExecuteActionInput) {
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
@@ -90,6 +90,7 @@ export class IbpService {
     const id = `action_${randomUUID()}`;
     const nowMs = Date.now();
     const createdAt = new Date().toISOString();
+
     const tx = this.db.transaction(() => {
       this.assertExecuteRateLimit(input.identityId, nowMs);
       this.assertProgressiveMinBond(input.identityId, bond.amount_cents, nowMs);
@@ -117,12 +118,47 @@ export class IbpService {
 
     tx();
 
+    let result: unknown = undefined;
+
+    // If this is a market HTTP action, execute it immediately (demo only)
+    if (input.actionType === "market.http") {
+      const p = input.payload as any;
+
+      const url = p?.url;
+      const body = p?.body;
+
+      if (!url || typeof url !== "string") {
+        throw new AppError(400, "VALIDATION_ERROR", "market.http payload.url is required");
+      }
+
+            try {
+        result = await postJson(url, body);
+      } catch (e: any) {
+        throw new AppError(400, "DESTINATION_BLOCKED", String(e?.message ?? e));
+      }
+
+      // Store the result back into the payload for audit/debugging
+      this.db
+        .prepare(
+          `UPDATE actions
+           SET payload = @payload
+           WHERE id = @id`
+        )
+        .run({
+          id,
+          payload: this.serializePayload({
+            ...p,
+            result
+          })
+        });
+    }
+
     return {
       actionId: id,
-      status: "open" as const
+      status: "open" as const,
+      result
     };
   }
-
   resolveAction(actionId: string, input: ResolveActionInput) {
     const action = this.getActionOrThrow(actionId);
     if (action.status !== "open") {

@@ -10,21 +10,13 @@ function fromBase64Url(value: string) {
 function createSigner() {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey;
-
-  if (!jwk.x) {
-    throw new Error("Missing Ed25519 public key");
-  }
-
-  return {
-    privateKey,
-    publicKey: fromBase64Url(jwk.x)
-  };
+  if (!jwk.x) throw new Error("Missing Ed25519 public key");
+  return { privateKey, publicKey: fromBase64Url(jwk.x) };
 }
 
 function signHeaders(privateKey: KeyObject, body: Record<string, unknown>) {
   const timestamp = Date.now().toString();
   const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
-
   return {
     "x-agentgate-timestamp": timestamp,
     "x-agentgate-signature": sign(null, message, privateKey).toString("base64")
@@ -34,85 +26,111 @@ function signHeaders(privateKey: KeyObject, body: Record<string, unknown>) {
 async function request(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, init);
   const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(`${response.status} ${JSON.stringify(data)}`);
-  }
-
+  if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(data)}`);
   return data as Record<string, unknown>;
 }
 
-async function main() {
-  const signer = createSigner();
-  console.log("Creating identity...");
-  const identity = await request("/v1/identities", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      publicKey: signer.publicKey
-    })
-  });
-  const identityId = String(identity.identityId);
-  console.log("Identity:", identityId);
-
-  console.log("Locking bond...");
+async function lockBond(identityId: string, reason: string) {
   const bond = await request("/v1/bonds/lock", {
     method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       identityId,
       amountCents: 2000,
       currency: "USD",
       ttlSeconds: 600,
-      reason: "toy agent demo"
+      reason
     })
   });
-  const bondId = String(bond.bondId);
-  console.log("Bond:", bondId);
+  return String(bond.bondId);
+}
 
-  const executeBody = {
+async function resolveSuccess(signer: { privateKey: KeyObject }, actionId: string) {
+  const body = { outcome: "success" };
+  await request(`/v1/actions/${actionId}/resolve`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...signHeaders(signer.privateKey, body) },
+    body: JSON.stringify(body)
+  });
+}
+
+async function main() {
+  const signer = createSigner();
+
+  console.log("Creating identity...");
+  const identity = await request("/v1/identities", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ publicKey: signer.publicKey })
+  });
+  const identityId = String(identity.identityId);
+  console.log("Identity:", identityId);
+
+  // BOND 1 for placing
+  console.log("Locking bond for PLACE...");
+  const bondPlace = await lockBond(identityId, "marketgate place demo");
+  console.log("BondPlace:", bondPlace);
+
+  const placeBody = {
     identityId,
-    bondId,
-    actionType: "demo-task",
+    bondId: bondPlace,
+    actionType: "market.http",
     payload: {
-      job: "hello"
+      url: "http://localhost:8787/agent-action",
+      body: {
+        actionType: "place_order",
+        payload: { market: "TEST", side: "yes", price: 0.49, size: 7, note: "via_agentgate" }
+      }
     }
   };
 
-  console.log("Executing action...");
-  const action = await request("/v1/actions/execute", {
+  console.log("Placing order via AgentGate...");
+  const placeAction = await request("/v1/actions/execute", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...signHeaders(signer.privateKey, executeBody)
-    },
-    body: JSON.stringify(executeBody)
+    headers: { "content-type": "application/json", ...signHeaders(signer.privateKey, placeBody) },
+    body: JSON.stringify(placeBody)
   });
-  const actionId = String(action.actionId);
-  console.log("Action:", actionId);
+  console.log("Place execute response:", placeAction);
 
-  const resolveBody = {
-    outcome: "success"
+  const placeActionId = String(placeAction.actionId);
+  const orderId = (placeAction as any)?.result?.order?.id;
+  if (!orderId) throw new Error("Missing orderId from placeAction result");
+  console.log("OrderId:", orderId);
+
+  await resolveSuccess(signer, placeActionId);
+  console.log("Resolved place action.");
+
+  // BOND 2 for cancelling
+  console.log("Locking bond for CANCEL...");
+  const bondCancel = await lockBond(identityId, "marketgate cancel demo");
+  console.log("BondCancel:", bondCancel);
+
+  const cancelBody = {
+    identityId,
+    bondId: bondCancel,
+    actionType: "market.http",
+    payload: {
+      url: "http://localhost:8787/agent-action",
+      body: {
+        actionType: "cancel_order",
+        payload: { orderId }
+      }
+    }
   };
 
-  console.log("Resolving action...");
-  const resolution = await request(`/v1/actions/${actionId}/resolve`, {
+  console.log("Cancelling order via AgentGate...");
+  const cancelAction = await request("/v1/actions/execute", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...signHeaders(signer.privateKey, resolveBody)
-    },
-    body: JSON.stringify(resolveBody)
+    headers: { "content-type": "application/json", ...signHeaders(signer.privateKey, cancelBody) },
+    body: JSON.stringify(cancelBody)
   });
-  console.log("Resolution:", resolution);
+  console.log("Cancel execute response:", cancelAction);
 
-  console.log("Fetching stats...");
-  const stats = await request("/v1/stats");
-  console.log("Stats:", stats);
+  const cancelActionId = String(cancelAction.actionId);
+  await resolveSuccess(signer, cancelActionId);
+  console.log("Resolved cancel action.");
+
+  console.log("Done.");
 }
 
 main().catch((error) => {

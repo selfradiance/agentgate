@@ -2,6 +2,21 @@
 
 AgentGate is a small backend microservice for stake-gated actions: an identity locks a bond, executes an action against that bond, and later resolves the action to refund, burn, or slash the locked capital according to the outcome.
 
+## MarketGate demo (AgentGate + mock exchange)
+
+This repo includes a local “market-style” demo showing how a signed + bonded agent action can be gated and then executed against a market API.
+
+### What runs where
+
+- AgentGate API: `http://127.0.0.1:3000`
+- Mock exchange (fake market): `http://localhost:8787`
+
+### Run it
+
+Terminal 1 (mock exchange):
+```bash
+node examples/marketgate/mock-exchange.ts
+
 ## Quickstart
 
 Install dependencies:

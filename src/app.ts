@@ -96,7 +96,7 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       request.headers["x-agentgate-signature"],
       rawBody
     );
-    reply.status(201).send(service.executeAction(body));
+    reply.status(201).send(await service.executeAction(body));
   });
 
   app.post("/v1/actions/:actionId/resolve", async (request, reply) => {
