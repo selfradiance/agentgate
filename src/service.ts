@@ -85,7 +85,7 @@ export class IbpService {
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
-    const declaredExposureCents = input.exposure;
+    const declaredExposureCents = input.exposure_cents;
     const effectiveExposureCents = Math.ceil(declaredExposureCents * RISK_MULTIPLIER);
     if (bond.outstanding_exposure_cents + effectiveExposureCents > bond.amount_cents) {
       throw new AppError(
@@ -180,7 +180,7 @@ export class IbpService {
   }
   resolveAction(actionId: string, input: ResolveActionInput) {
     const action = this.getActionOrThrow(actionId);
-    const exposureCents = (action as any).exposure_cents;
+    const exposureCents = action.exposure_cents;
     if (action.status !== "open") {
       throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
     }

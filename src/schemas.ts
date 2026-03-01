@@ -22,7 +22,7 @@ export const executeActionSchema = z.object({
   actionType: z.string().trim().min(1, "actionType is required"),
   payload: z.unknown().optional(),
   bondId: z.string().trim().min(1, "bondId is required"),
-  exposure: z.number().int().positive("exposure must be a positive integer")
+  exposure_cents: z.number().int().positive("exposure_cents must be a positive integer")
 });
 
 export const resolveActionSchema = z.object({

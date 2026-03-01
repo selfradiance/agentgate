@@ -21,6 +21,12 @@ import { signRequestSignature } from "./signing";
  */
 
 interface AgentIdentity {
+  identityId: string;
+  publicKey: string;
+  privateKey: string;
+}
+
+interface GeneratedIdentity {
   publicKey: string;
   privateKey: string;
 }
@@ -33,8 +39,10 @@ interface LockBondResponse {
 
 interface ExecuteActionResponse {
   action_id?: string;
+  actionId?: string;
   status?: string;
   reserved_exposure_cents?: number;
+  reservedExposure?: number;
 }
 
 interface ResolveActionResponse {
@@ -57,19 +65,38 @@ function isAgentIdentity(value: unknown): value is AgentIdentity {
   }
 
   const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.identityId === "string" &&
+    typeof candidate.publicKey === "string" &&
+    typeof candidate.privateKey === "string"
+  );
+}
+
+function hasKeyMaterial(value: unknown): value is GeneratedIdentity {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
   return typeof candidate.publicKey === "string" && typeof candidate.privateKey === "string";
 }
 
-async function loadOrCreateIdentity(): Promise<AgentIdentity> {
+async function loadOrCreateIdentity(): Promise<AgentIdentity | GeneratedIdentity> {
   try {
     const existing = await fs.promises.readFile(IDENTITY_FILE, "utf8");
     const parsed: unknown = JSON.parse(existing);
 
-    if (!isAgentIdentity(parsed)) {
-      throw new Error("agent-identity.json must contain publicKey and privateKey strings");
+    if (isAgentIdentity(parsed)) {
+      return parsed;
     }
 
-    return parsed;
+    if (hasKeyMaterial(parsed)) {
+      throw new Error(
+        "agent-identity.json is missing identityId. Delete agent-identity.json and rerun createIdentity()."
+      );
+    }
+
+    throw new Error("agent-identity.json must contain identityId, publicKey, and privateKey strings");
   } catch (error: unknown) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
@@ -85,13 +112,14 @@ async function loadOrCreateIdentity(): Promise<AgentIdentity> {
     throw new Error("Failed to export Ed25519 keypair as JWK");
   }
 
-  const identity: AgentIdentity = {
+  return {
     publicKey: base64UrlToBase64(publicJwk.x),
     privateKey: base64UrlToBase64(privateJwk.d)
   };
+}
 
+async function writeIdentityFile(identity: AgentIdentity) {
   await fs.promises.writeFile(IDENTITY_FILE, `${JSON.stringify(identity, null, 2)}\n`, "utf8");
-  return identity;
 }
 
 async function parseErrorBody(response: Response) {
@@ -134,36 +162,50 @@ function isAlreadyExistsError(status: number, body: unknown) {
   return combined.includes("already exists") || combined.includes("duplicate");
 }
 
-async function registerIdentity(baseUrl: string, publicKey: string) {
+async function registerIdentity(baseUrl: string, publicKey: string): Promise<string> {
   const url = new URL("/v1/identities", baseUrl);
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
-    body: JSON.stringify({ public_key: publicKey })
+    body: JSON.stringify({ publicKey })
   });
 
-  if (response.ok) {
-    return;
+  if (!response.ok) {
+    const errorBody = await parseErrorBody(response);
+
+    if (isAlreadyExistsError(response.status, errorBody)) {
+      throw new Error(
+        "Identity already exists on the server. Delete agent-identity.json and rerun createIdentity()."
+      );
+    }
+
+    const detail =
+      typeof errorBody === "string"
+        ? errorBody
+        : errorBody && typeof errorBody === "object" && "message" in errorBody
+          ? String((errorBody as Record<string, unknown>).message)
+          : "";
+
+    throw new Error(
+      `POST ${url.toString()} failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`
+    );
   }
 
-  const errorBody = await parseErrorBody(response);
+  const responseBody = await response.json() as Record<string, unknown>;
+  const identityId =
+    typeof responseBody.identityId === "string"
+      ? responseBody.identityId
+      : typeof responseBody.id === "string"
+        ? responseBody.id
+        : null;
 
-  if (isAlreadyExistsError(response.status, errorBody)) {
-    return;
+  if (!identityId) {
+    throw new Error(`POST ${url.toString()} succeeded but did not return identityId`);
   }
 
-  const detail =
-    typeof errorBody === "string"
-      ? errorBody
-      : errorBody && typeof errorBody === "object" && "message" in errorBody
-        ? String((errorBody as Record<string, unknown>).message)
-        : "";
-
-  throw new Error(
-    `POST ${url.toString()} failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`
-  );
+  return identityId;
 }
 
 export class AgentAdapter {
@@ -173,8 +215,17 @@ export class AgentAdapter {
 
   async createIdentity(): Promise<void> {
     const identity = await loadOrCreateIdentity();
-    this.identity = identity;
-    await registerIdentity(this.baseUrl, identity.publicKey);
+
+    if ("identityId" in identity) {
+      this.identity = identity;
+      return;
+    }
+
+    const identityId = await registerIdentity(this.baseUrl, identity.publicKey);
+    const storedIdentity: AgentIdentity = { ...identity, identityId };
+
+    await writeIdentityFile(storedIdentity);
+    this.identity = storedIdentity;
   }
 
   private async signedPost<T>(path: string, body: unknown): Promise<T> {
@@ -222,12 +273,18 @@ export class AgentAdapter {
   async lockBond(
     amountCents: number,
     ttlSeconds: number,
-    reason?: string
+    reason: string
   ): Promise<LockBondResponse> {
+    if (!this.identity) {
+      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
+    }
+
     return this.signedPost("/v1/bonds/lock", {
-      amount_cents: amountCents,
-      ttl_seconds: ttlSeconds,
-      ...(reason ? { reason } : {})
+      identityId: this.identity.identityId,
+      amountCents,
+      currency: "USD",
+      ttlSeconds,
+      reason
     });
   }
 
@@ -237,12 +294,38 @@ export class AgentAdapter {
     payload: Record<string, unknown>,
     exposureCents: number
   ): Promise<ExecuteActionResponse> {
+    if (!this.identity) {
+      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
+    }
+
     return this.signedPost("/v1/actions/execute", {
-      bond_id: bondId,
-      action_type: actionType,
+      identityId: this.identity.identityId,
+      actionType,
       payload,
+      bondId,
       exposure_cents: exposureCents
     });
+  }
+
+  async getReputation(identityId: string): Promise<unknown> {
+    const url = new URL(`/v1/identities/${identityId}`, this.baseUrl);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errorBody = await parseErrorBody(response);
+      const detail =
+        typeof errorBody === "string"
+          ? errorBody
+          : errorBody && typeof errorBody === "object" && "message" in errorBody
+            ? String((errorBody as Record<string, unknown>).message)
+            : "";
+
+      throw new Error(
+        `GET ${url.toString()} failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`
+      );
+    }
+
+    return response.json();
   }
 
   async resolveAction(

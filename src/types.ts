@@ -22,6 +22,7 @@ export interface BondRecord {
   refund_cents: number;
   burned_cents: number;
   slashed_cents: number;
+  outstanding_exposure_cents: number;
 }
 
 export interface ActionRecord {
@@ -30,6 +31,7 @@ export interface ActionRecord {
   action_type: string;
   payload: string | null;
   bond_id: string;
+  exposure_cents: number;
   status: ActionStatus;
   created_at: string;
   resolved_at: string | null;
