@@ -1,185 +1,136 @@
-# AgentGate
+# AgentGate (Intent Bond Protocol)
 
-AgentGate is a small backend microservice for stake-gated actions: an identity locks a bond, executes an action against that bond, and later resolves the action to refund, burn, or slash the locked capital according to the outcome.
+AgentGate is a collateralized execution engine for AI agents.
 
-## Feedback wanted
+It enforces economic accountability through signed identities and reusable bond-based exposure tracking.
 
-If you starred this repo (or you’re curious), I’d love 2 minutes of feedback:
+AgentGate is designed to act as a deterministic choke point between autonomous agents and high-impact external actions (e.g., market orders, API calls, financial operations).
 
-1) What use-case do you imagine for AgentGate / MarketGate?
-2) What’s the biggest security risk or failure mode you’d worry about?
-3) What’s the smallest feature or example that would make you try it?
+---
 
-Post here: **Discussions → “Feedback thread”** (or start a new discussion if you prefer).
+## Core Concepts
 
-## MarketGate demo (AgentGate + mock exchange)
+### Identity
 
-This repo includes a local “market-style” demo showing how a signed + bonded agent action can be gated and then executed against a market API.
+- Ed25519 public key (raw 32-byte base64)
+- All state-changing endpoints require signed requests
+- Replay protection via timestamp validation
 
-### What runs where
+Signed message format:
 
-- AgentGate API: `http://127.0.0.1:3000`
-- Mock exchange (fake market): `http://localhost:8787`
+sha256(timestamp + JSON.stringify(body))
 
-### Run it
+Required headers:
 
-Terminal 1 (mock exchange):
-```bash
+x-agentgate-timestamp
+x-agentgate-signature
+
+---
+
+### Reusable Bond Model
+
+Bonds are not single-use.
+
+Each bond represents reusable execution capacity.
+
+Bond fields:
+
+- amount_cents
+- outstanding_exposure_cents
+- slashed_cents
+- ttl_seconds
+- status
+
+Capacity rule:
+
+Effective exposure = ceil(declared_exposure × multiplier)
+
+Default multiplier: 1.2
+
+Constraint:
+
+outstanding_exposure_cents + effective_exposure <= amount_cents
+
+If exceeded → INSUFFICIENT_BOND_CAPACITY
+
+---
+
+### Exposure Lifecycle
+
+On execute:
+- Exposure reserved
+- outstanding_exposure_cents incremented
+
+On resolve:
+- Exposure released
+- Bond remains active
+
+On malicious:
+- amount_cents reduced (clamped at zero)
+- slashed_cents increased
+
+---
+
+### Action Model
+
+Actions include:
+
+- action_type
+- payload
+- exposure_cents
+- status (open / success / failed / malicious)
+
+Multiple actions per bond are supported.
+
+---
+
+### Outbound HTTP Safety (`market.http`)
+
+- Allowlist enforcement (default: localhost only)
+- http/https only
+- Timeout (default 2500ms)
+- Max request size
+- Max response size
+- Errors wrapped as DESTINATION_BLOCKED
+
+Environment variables:
+
+- IBP_HTTP_ALLOWLIST
+- IBP_HTTP_TIMEOUT_MS
+- IBP_HTTP_MAX_BODY_BYTES
+- IBP_HTTP_MAX_RESPONSE_BYTES
+
+---
+
+## Running Locally
+
+Install:
+
+npm install
+
+Start server:
+
+npm run dev
+
+Default address: 127.0.0.1:3000
+
+---
+
+## Demo: MarketGate
+
+Start mock exchange:
+
 node examples/marketgate/mock-exchange.ts
 
-## Quickstart
+Run toy agent:
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Run the development server:
-
-```bash
-npm run dev
-```
-
-Run the test suite:
-
-```bash
-npm run test
-```
-
-The server listens on `http://127.0.0.1:3000` by default and uses local SQLite storage at `data/ibp.sqlite`.
-
-## Example Integration
-
-1. Start AgentGate:
-
-```bash
-npm run dev
-```
-
-2. In another terminal, run the toy client:
-
-```bash
 npm run example:toy-agent
-```
 
-## Request Signing
+---
 
-`POST /v1/actions/execute` and `POST /v1/actions/:id/resolve` require:
+## Project Files
 
-- `x-agentgate-timestamp`
-- `x-agentgate-signature`
-
-The identity public key must be a base64-encoded Ed25519 public key. The signature is base64-encoded Ed25519 over:
-
-```text
-SHA256(timestamp + JSON.stringify(body))
-```
-
-Timestamps older than 60 seconds are rejected.
-
-## Hardening
-
-- `POST /v1/actions/execute` is limited to 10 executes per identity in any 60-second window.
-- AgentGate tracks execute requests in SQLite using minute-bucketed request records.
-- Progressive minimum bond rules apply to recent action volume:
-- More than 10 actions in the last 10 minutes requires `amountCents >= 2000`.
-- More than 20 actions in the last 10 minutes requires `amountCents >= 5000`.
-
-## API Summary
-
-- `POST /v1/identities`
-- `POST /v1/bonds/lock`
-- `POST /v1/actions/execute`
-- `POST /v1/actions/:id/resolve`
-- `GET /v1/stats`
-
-## cURL Examples
-
-Create an identity:
-
-```bash
-curl -s http://127.0.0.1:3000/v1/identities \
-  -H 'content-type: application/json' \
-  -d '{
-    "publicKey":"BASE64_ED25519_PUBLIC_KEY"
-  }'
-```
-
-Lock a bond:
-
-```bash
-curl -s http://127.0.0.1:3000/v1/bonds/lock \
-  -H 'content-type: application/json' \
-  -d '{
-    "identityId":"id_...",
-    "amountCents":1500,
-    "currency":"USD",
-    "ttlSeconds":600,
-    "reason":"serious intent signal"
-  }'
-```
-
-Execute an action:
-
-```bash
-TIMESTAMP="$(date +%s000)"
-
-curl -s http://127.0.0.1:3000/v1/actions/execute \
-  -H 'content-type: application/json' \
-  -H "x-agentgate-timestamp: $TIMESTAMP" \
-  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
-  -d '{
-    "identityId":"id_...",
-    "bondId":"bond_...",
-    "actionType":"listing-interest",
-    "payload":{"note":"Ready to proceed"}
-  }'
-```
-
-Resolve an action as success:
-
-```bash
-TIMESTAMP="$(date +%s000)"
-
-curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
-  -H 'content-type: application/json' \
-  -H "x-agentgate-timestamp: $TIMESTAMP" \
-  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
-  -d '{
-    "outcome":"success"
-  }'
-```
-
-Resolve an action as malicious:
-
-```bash
-TIMESTAMP="$(date +%s000)"
-
-curl -s http://127.0.0.1:3000/v1/actions/action_.../resolve \
-  -H 'content-type: application/json' \
-  -H "x-agentgate-timestamp: $TIMESTAMP" \
-  -H 'x-agentgate-signature: BASE64_SIGNATURE' \
-  -d '{
-    "outcome":"malicious"
-  }'
-```
-
-Fetch aggregate stats:
-
-```bash
-curl -s http://127.0.0.1:3000/v1/stats
-```
-
-## Non-goals / Limitations
-
-- Not production-ready escrow.
-- No nonce store or durable replay tracking beyond the 60-second timestamp window.
-- No KYC.
-- Local SQLite only.
-
-## Roadmap (short)
-
-- Replay protection hardening.
-- Pluggable storage.
-- Optional on-chain escrow.
+- src/ — core server logic
+- examples/ — demo agents and mock exchange
+- PROJECT_CONTEXT.md — authoritative architecture snapshot
+- marketgate_build_log.md — chronological build history
