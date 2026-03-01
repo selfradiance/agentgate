@@ -1,6 +1,6 @@
 // src/http.ts
 const DEFAULT_TIMEOUT_MS = Number(process.env.IBP_HTTP_TIMEOUT_MS || 2500);
-
+const DEFAULT_MAX_RESPONSE_BYTES = Number(process.env.IBP_HTTP_MAX_RESPONSE_BYTES || 8192);
 // Comma-separated list, optional (e.g. "localhost,127.0.0.1")
 // If not provided, we default to localhost-only.
 const ALLOWLIST_ENV = (process.env.IBP_HTTP_ALLOWLIST || "").trim();
@@ -53,7 +53,7 @@ export async function postJson(url: string, body: unknown) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-            // Enforce max payload size (bytes) before sending
+      // Enforce max payload size (bytes) before sending
       body: (() => {
         const json = JSON.stringify(body);
         const maxBytes = Number(process.env.IBP_HTTP_MAX_BODY_BYTES || 4096);
@@ -66,7 +66,40 @@ export async function postJson(url: string, body: unknown) {
       signal: controller.signal
     });
 
-    const text = await res.text();
+    // Read response with size limit
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body");
+    }
+
+    let totalBytes = 0;
+    const chunks: Uint8Array[] = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (value) {
+        totalBytes += value.length;
+
+        if (totalBytes > DEFAULT_MAX_RESPONSE_BYTES) {
+          throw new Error(
+            `Response too large: ${totalBytes} bytes (max ${DEFAULT_MAX_RESPONSE_BYTES})`
+          );
+        }
+
+        chunks.push(value);
+      }
+    }
+
+    const combined = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const text = new TextDecoder().decode(combined);
     let json: unknown = undefined;
 
     try {
