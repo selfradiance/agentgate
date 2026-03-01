@@ -115,6 +115,13 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     reply.send(service.resolveAction(params.actionId, body));
   });
 
+  app.post("/v1/demo/echo", async (request, reply) => {
+    reply.status(200).send({
+      ok: true,
+      received: request.body
+    });
+  });
+
   app.get("/v1/identities/:id", async (request, reply) => {
     const params = request.params as { id?: string };
     if (!params.id) {
