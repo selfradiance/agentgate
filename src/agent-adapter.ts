@@ -31,6 +31,20 @@ interface LockBondResponse {
   expires_at?: string;
 }
 
+interface ExecuteActionResponse {
+  action_id?: string;
+  status?: string;
+  reserved_exposure_cents?: number;
+}
+
+interface ResolveActionResponse {
+  action_id?: string;
+  status?: string;
+  bond_id?: string;
+  released_exposure_cents?: number;
+  slashed_cents_delta?: number;
+}
+
 const IDENTITY_FILE = path.resolve(process.cwd(), "agent-identity.json");
 
 function base64UrlToBase64(value: string) {
@@ -217,11 +231,28 @@ export class AgentAdapter {
     });
   }
 
-  async executeBondedAction(): Promise<void> {
-    throw new Error("Not implemented yet");
+  async executeBondedAction(
+    bondId: string,
+    actionType: string,
+    payload: Record<string, unknown>,
+    exposureCents: number
+  ): Promise<ExecuteActionResponse> {
+    return this.signedPost("/v1/actions/execute", {
+      bond_id: bondId,
+      action_type: actionType,
+      payload,
+      exposure_cents: exposureCents
+    });
   }
 
-  async resolveAction(): Promise<void> {
-    throw new Error("Not implemented yet");
+  async resolveAction(
+    actionId: string,
+    outcome: "success" | "failed" | "malicious",
+    details?: Record<string, unknown>
+  ): Promise<ResolveActionResponse> {
+    return this.signedPost(`/v1/actions/${actionId}/resolve`, {
+      outcome,
+      ...(details ? { details } : {})
+    });
   }
 }
