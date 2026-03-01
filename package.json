@@ -1,5 +1,5 @@
 {
-  "name": "ibp-prototype",
+  "name": "agentgate",
   "version": "0.1.0",
   "private": true,
   "description": "Minimal Intent Bond Protocol prototype service",
