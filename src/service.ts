@@ -23,9 +23,9 @@ interface SettledAmounts {
   slashedCents: number;
   bondStatus: BondStatus;
 }
-
+const RISK_MULTIPLIER = 1.2;
 export class IbpService {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Database.Database) { }
 
   createIdentity(input: CreateIdentityInput) {
     const id = `id_${randomUUID()}`;
@@ -81,10 +81,19 @@ export class IbpService {
     };
   }
 
-      async executeAction(input: ExecuteActionInput) {
+  async executeAction(input: ExecuteActionInput) {
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
+    const declaredExposureCents = input.exposure;
+    const effectiveExposureCents = Math.ceil(declaredExposureCents * RISK_MULTIPLIER);
+    if (bond.outstanding_exposure_cents + effectiveExposureCents > bond.amount_cents) {
+      throw new AppError(
+        400,
+        "INSUFFICIENT_BOND_CAPACITY",
+        "Bond capacity exceeded for this action"
+      );
+    }
     this.assertBondCanBackAction(bond, input.identityId);
 
     const id = `action_${randomUUID()}`;
@@ -98,10 +107,10 @@ export class IbpService {
       this.db
         .prepare(
           `INSERT INTO actions (
-            id, identity_id, action_type, payload, bond_id, status, created_at
-          ) VALUES (
-            @id, @identity_id, @action_type, @payload, @bond_id, @status, @created_at
-          )`
+  id, identity_id, action_type, payload, bond_id, exposure_cents, status, created_at
+) VALUES (
+  @id, @identity_id, @action_type, @payload, @bond_id, @exposure_cents, @status, @created_at
+)`
         )
         .run({
           id,
@@ -109,10 +118,20 @@ export class IbpService {
           action_type: input.actionType,
           payload: this.serializePayload(input.payload),
           bond_id: input.bondId,
+          exposure_cents: effectiveExposureCents,
           status: "open",
           created_at: createdAt
         });
-
+      this.db
+        .prepare(`
+    UPDATE bonds
+    SET outstanding_exposure_cents = outstanding_exposure_cents + @delta
+    WHERE id = @bond_id
+  `)
+        .run({
+          delta: effectiveExposureCents,
+          bond_id: bond.id
+        });
       this.recordExecuteAttempt(input.identityId, nowMs);
     });
 
@@ -131,7 +150,7 @@ export class IbpService {
         throw new AppError(400, "VALIDATION_ERROR", "market.http payload.url is required");
       }
 
-            try {
+      try {
         result = await postJson(url, body);
       } catch (e: any) {
         throw new AppError(400, "DESTINATION_BLOCKED", String(e?.message ?? e));
@@ -161,12 +180,12 @@ export class IbpService {
   }
   resolveAction(actionId: string, input: ResolveActionInput) {
     const action = this.getActionOrThrow(actionId);
+    const exposureCents = (action as any).exposure_cents;
     if (action.status !== "open") {
       throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
     }
 
     const bond = this.getBondOrThrow(action.bond_id);
-    const settlement = this.calculateSettlement(bond.amount_cents, input.outcome);
     const resolvedAt = new Date().toISOString();
 
     const tx = this.db.transaction(() => {
@@ -183,22 +202,25 @@ export class IbpService {
         });
 
       this.db
-        .prepare(
-          `UPDATE bonds
-           SET status = @status,
-               closed_at = @closed_at,
-               refund_cents = @refund_cents,
-               burned_cents = @burned_cents,
-               slashed_cents = @slashed_cents
-           WHERE id = @id`
-        )
+        .prepare(`
+    UPDATE bonds
+    SET outstanding_exposure_cents = outstanding_exposure_cents - @exposure_delta,
+        amount_cents = CASE
+          WHEN @outcome = 'malicious'
+          THEN MAX(amount_cents - @exposure_delta, 0)
+          ELSE amount_cents
+        END,
+        slashed_cents = slashed_cents + CASE
+          WHEN @outcome = 'malicious'
+          THEN @exposure_delta
+          ELSE 0
+        END
+    WHERE id = @id
+  `)
         .run({
           id: bond.id,
-          status: settlement.bondStatus,
-          closed_at: resolvedAt,
-          refund_cents: settlement.refundCents,
-          burned_cents: settlement.burnedCents,
-          slashed_cents: settlement.slashedCents
+          exposure_delta: exposureCents,
+          outcome: input.outcome
         });
     });
 
@@ -206,10 +228,7 @@ export class IbpService {
 
     return {
       actionId,
-      outcome: input.outcome,
-      refundCents: settlement.refundCents,
-      burnedCents: settlement.burnedCents,
-      slashedCents: settlement.slashedCents
+      outcome: input.outcome
     };
   }
 
@@ -315,14 +334,6 @@ export class IbpService {
         .prepare(`UPDATE bonds SET status = 'expired', closed_at = ? WHERE id = ?`)
         .run(new Date().toISOString(), bond.id);
       throw new AppError(409, "BOND_EXPIRED", "Bond has expired");
-    }
-
-    const existingAction = this.db
-      .prepare(`SELECT id FROM actions WHERE bond_id = ? LIMIT 1`)
-      .get(bond.id) as { id: string } | undefined;
-
-    if (existingAction) {
-      throw new AppError(409, "BOND_NOT_ACTIVE", "Bond is not active");
     }
   }
 

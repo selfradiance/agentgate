@@ -24,28 +24,30 @@ export function createDatabase(filename: string): DatabaseHandle {
     );
 
     CREATE TABLE IF NOT EXISTS bonds (
-      id TEXT PRIMARY KEY,
-      identity_id TEXT NOT NULL,
-      amount_cents INTEGER NOT NULL,
-      currency TEXT NOT NULL,
-      ttl_seconds INTEGER NOT NULL,
-      reason TEXT NOT NULL,
-      status TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      closed_at TEXT,
-      refund_cents INTEGER NOT NULL DEFAULT 0,
-      burned_cents INTEGER NOT NULL DEFAULT 0,
-      slashed_cents INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY(identity_id) REFERENCES identities(id)
-    );
+  id TEXT PRIMARY KEY,
+  identity_id TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  ttl_seconds INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  closed_at TEXT,
+  refund_cents INTEGER NOT NULL DEFAULT 0,
+  burned_cents INTEGER NOT NULL DEFAULT 0,
+  slashed_cents INTEGER NOT NULL DEFAULT 0,
+  outstanding_exposure_cents INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY(identity_id) REFERENCES identities(id)
+);
 
     CREATE TABLE IF NOT EXISTS actions (
       id TEXT PRIMARY KEY,
       identity_id TEXT NOT NULL,
       action_type TEXT NOT NULL,
       payload TEXT,
-      bond_id TEXT NOT NULL UNIQUE,
+      bond_id TEXT NOT NULL,
+      exposure_cents INTEGER NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       resolved_at TEXT,

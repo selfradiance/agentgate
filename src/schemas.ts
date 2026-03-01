@@ -21,7 +21,8 @@ export const executeActionSchema = z.object({
   identityId: z.string().trim().min(1, "identityId is required"),
   actionType: z.string().trim().min(1, "actionType is required"),
   payload: z.unknown().optional(),
-  bondId: z.string().trim().min(1, "bondId is required")
+  bondId: z.string().trim().min(1, "bondId is required"),
+  exposure: z.number().int().positive("exposure must be a positive integer")
 });
 
 export const resolveActionSchema = z.object({
