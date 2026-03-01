@@ -3,6 +3,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { signRequestSignature } from "./signing";
 
 /**
  * AgentAdapter
@@ -22,6 +23,12 @@ import path from "node:path";
 interface AgentIdentity {
   publicKey: string;
   privateKey: string;
+}
+
+interface LockBondResponse {
+  bond_id?: string;
+  status?: string;
+  expires_at?: string;
 }
 
 const IDENTITY_FILE = path.resolve(process.cwd(), "agent-identity.json");
@@ -146,15 +153,68 @@ async function registerIdentity(baseUrl: string, publicKey: string) {
 }
 
 export class AgentAdapter {
+  private identity?: AgentIdentity;
+
   constructor(private baseUrl: string) {}
 
   async createIdentity(): Promise<void> {
     const identity = await loadOrCreateIdentity();
+    this.identity = identity;
     await registerIdentity(this.baseUrl, identity.publicKey);
   }
 
-  async lockBond(): Promise<void> {
-    throw new Error("Not implemented yet");
+  private async signedPost<T>(path: string, body: unknown): Promise<T> {
+    if (!this.identity) {
+      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
+    }
+
+    const identity = this.identity;
+
+    const timestamp = Date.now().toString();
+    const signatureBase64 = signRequestSignature(
+      identity.publicKey,
+      identity.privateKey,
+      timestamp,
+      body
+    );
+
+    const response = await fetch(new URL(path, this.baseUrl), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agentgate-timestamp": timestamp,
+        "x-agentgate-signature": signatureBase64
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errorBody = await parseErrorBody(response);
+      const detail =
+        typeof errorBody === "string"
+          ? errorBody
+          : errorBody && typeof errorBody === "object" && "message" in errorBody
+            ? String((errorBody as Record<string, unknown>).message)
+            : "";
+
+      throw new Error(
+        `POST ${response.url} failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`
+      );
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  async lockBond(
+    amountCents: number,
+    ttlSeconds: number,
+    reason?: string
+  ): Promise<LockBondResponse> {
+    return this.signedPost("/v1/bonds/lock", {
+      amount_cents: amountCents,
+      ttl_seconds: ttlSeconds,
+      ...(reason ? { reason } : {})
+    });
   }
 
   async executeBondedAction(): Promise<void> {
