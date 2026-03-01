@@ -8,7 +8,9 @@ async function main() {
   await adapter.createIdentity();
 
   const bond = await adapter.lockBond(10000, 3600, "adapter demo");
-  const bondId = bond.bond_id;
+  console.log("LOCK_BOND_RESPONSE:", bond);
+
+  const bondId = (bond as any).bond_id ?? (bond as any).bondId;
   if (!bondId) {
     throw new Error("Missing bond_id from lockBond response");
   }
