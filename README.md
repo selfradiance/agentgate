@@ -8,6 +8,20 @@ AgentGate is designed to act as a deterministic choke point between autonomous a
 
 ---
 
+## Development Workflow Rule
+
+After any major architectural milestone (new layer added, schema change, security rail, MCP change, adapter change):
+
+1. Run full typecheck and demo verification
+2. Commit with a clear milestone message
+3. Push to GitHub
+4. Update this README with:
+   - What changed
+   - Current system architecture state
+   - Next planned step
+
+---
+
 ## Core Concepts
 
 ### Identity
@@ -134,3 +148,5 @@ npm run example:toy-agent
 - examples/ — demo agents and mock exchange
 - PROJECT_CONTEXT.md — authoritative architecture snapshot
 - marketgate_build_log.md — chronological build history
+
+> Reminder: After each major change, update this file and push to GitHub before starting the next phase.
