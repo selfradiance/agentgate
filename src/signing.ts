@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 
 const ed25519PublicKeyLength = 32;
 const maxSignatureAgeMs = 60_000;
@@ -47,6 +47,29 @@ function createEd25519PublicKey(publicKeyBase64: string) {
   });
 }
 
+function createEd25519PrivateKey(publicKeyBase64: string, privateKeyBase64: string) {
+  const publicKeyBytes = decodeBase64(publicKeyBase64);
+  const privateKeyBytes = decodeBase64(privateKeyBase64);
+
+  if (!publicKeyBytes || publicKeyBytes.length !== ed25519PublicKeyLength) {
+    throw new Error("Invalid Ed25519 public key");
+  }
+
+  if (!privateKeyBytes || privateKeyBytes.length !== ed25519PublicKeyLength) {
+    throw new Error("Invalid Ed25519 private key");
+  }
+
+  return createPrivateKey({
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: toBase64Url(publicKeyBytes),
+      d: toBase64Url(privateKeyBytes)
+    },
+    format: "jwk"
+  });
+}
+
 export function buildSignedMessage(timestamp: string, body: unknown) {
   return createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
 }
@@ -83,4 +106,19 @@ export function verifyRequestSignature(
   } catch {
     return false;
   }
+}
+
+export function signRequestSignature(
+  publicKeyBase64: string,
+  privateKeyBase64: string,
+  timestamp: string,
+  body: unknown
+) {
+  const signature = sign(
+    null,
+    buildSignedMessage(timestamp, body),
+    createEd25519PrivateKey(publicKeyBase64, privateKeyBase64)
+  );
+
+  return signature.toString("base64");
 }
