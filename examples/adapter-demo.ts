@@ -18,7 +18,7 @@ async function main() {
   const action = await adapter.executeBondedAction(
     bondId,
     "market.http",
-    { url: "https://example.com", method: "GET" },
+    { url: "http://127.0.0.1:3000/v1/demo/echo", body: { ping: "pong" } },
     500
   );
   const actionId = action.action_id;
