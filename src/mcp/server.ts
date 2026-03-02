@@ -9,16 +9,16 @@ const adapter = new AgentAdapter(process.env.AGENTGATE_BASE_URL ?? "http://127.0
 
 // ---- Tool input schemas ----
 const lockBondSchema = z.object({
-  amount_cents: z.number().int().positive(),
-  ttl_seconds: z.number().int().positive().default(3600),
+  amount_cents: z.coerce.number().int().positive(),
+  ttl_seconds: z.coerce.number().int().positive().default(3600),
   reason: z.string().default("mcp_lock_bond")
 });
 
 const executeBondedActionSchema = z.object({
   bondId: z.string(),
   actionType: z.string(),
-  payload: z.record(z.string(), z.unknown()),
-  exposure_cents: z.number().int().positive()
+  payload: z.preprocess((val) => typeof val === "string" ? JSON.parse(val) : val, z.record(z.string(), z.unknown())),
+  exposure_cents: z.coerce.number().int().positive()
 });
 
 const resolveActionSchema = z.object({
@@ -59,6 +59,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "get_reputation",
         description: "Get identity reputation score.",
         inputSchema: getReputationSchema
+      },
+      {
+        name: "create_identity",
+        description: "Create or load the agent identity. Called automatically by other tools, but can be called explicitly.",
+        inputSchema: z.object({})
       }
     ]
   };
@@ -72,7 +77,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (toolName === "lock_bond") {
     const input = lockBondSchema.parse(args);
     const result = await adapter.lockBond(input.amount_cents, input.ttl_seconds, input.reason);
-    return { content: [{ type: "json", json: result }] };
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   if (toolName === "execute_bonded_action") {
@@ -83,19 +88,24 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       input.payload,
       input.exposure_cents
     );
-    return { content: [{ type: "json", json: result }] };
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   if (toolName === "resolve_action") {
     const input = resolveActionSchema.parse(args);
     const result = await adapter.resolveAction(input.actionId, input.outcome);
-    return { content: [{ type: "json", json: result }] };
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   if (toolName === "get_reputation") {
     const input = getReputationSchema.parse(args);
     const result = await adapter.getReputation(input.identityId);
-    return { content: [{ type: "json", json: result }] };
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+
+  if (toolName === "create_identity") {
+    const result = await adapter.createIdentity();
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   throw new Error(`Unknown tool: ${toolName}`);

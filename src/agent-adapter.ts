@@ -53,7 +53,7 @@ interface ResolveActionResponse {
   slashed_cents_delta?: number;
 }
 
-const IDENTITY_FILE = path.resolve(process.cwd(), "agent-identity.json");
+const IDENTITY_FILE = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../agent-identity.json');
 
 function base64UrlToBase64(value: string) {
   return Buffer.from(value, "base64url").toString("base64");
@@ -213,12 +213,12 @@ export class AgentAdapter {
 
   constructor(private baseUrl: string) {}
 
-  async createIdentity(): Promise<void> {
+  async createIdentity(): Promise<{ identityId: string }> {
     const identity = await loadOrCreateIdentity();
 
     if ("identityId" in identity) {
       this.identity = identity;
-      return;
+      return { identityId: identity.identityId };
     }
 
     const identityId = await registerIdentity(this.baseUrl, identity.publicKey);
@@ -226,14 +226,19 @@ export class AgentAdapter {
 
     await writeIdentityFile(storedIdentity);
     this.identity = storedIdentity;
+    return { identityId };
+  }
+
+  private async ensureIdentity(): Promise<void> {
+    if (!this.identity) {
+      await this.createIdentity();
+    }
   }
 
   private async signedPost<T>(path: string, body: unknown): Promise<T> {
-    if (!this.identity) {
-      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
-    }
+    await this.ensureIdentity();
 
-    const identity = this.identity;
+    const identity = this.identity!;
 
     const timestamp = Date.now().toString();
     const signatureBase64 = signRequestSignature(
@@ -275,12 +280,8 @@ export class AgentAdapter {
     ttlSeconds: number,
     reason: string
   ): Promise<LockBondResponse> {
-    if (!this.identity) {
-      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
-    }
-
     return this.signedPost("/v1/bonds/lock", {
-      identityId: this.identity.identityId,
+      identityId: this.identity!.identityId,
       amountCents,
       currency: "USD",
       ttlSeconds,
@@ -294,12 +295,8 @@ export class AgentAdapter {
     payload: Record<string, unknown>,
     exposureCents: number
   ): Promise<ExecuteActionResponse> {
-    if (!this.identity) {
-      throw new Error("AgentAdapter not initialized. Call createIdentity() first.");
-    }
-
     return this.signedPost("/v1/actions/execute", {
-      identityId: this.identity.identityId,
+      identityId: this.identity!.identityId,
       actionType,
       payload,
       bondId,
