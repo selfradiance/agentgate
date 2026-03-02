@@ -5,6 +5,7 @@ export type ResolveOutcome = "success" | "failed" | "malicious";
 export interface IdentityRecord {
   id: string;
   public_key: string;
+  agent_name: string | null;
   created_at: string;
 }
 

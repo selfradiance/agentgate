@@ -53,7 +53,7 @@ interface ResolveActionResponse {
   slashed_cents_delta?: number;
 }
 
-const IDENTITY_FILE = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../agent-identity.json');
+const IDENTITY_FILE = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../agent-identity.json');
 
 function base64UrlToBase64(value: string) {
   return Buffer.from(value, "base64url").toString("base64");
@@ -162,14 +162,14 @@ function isAlreadyExistsError(status: number, body: unknown) {
   return combined.includes("already exists") || combined.includes("duplicate");
 }
 
-async function registerIdentity(baseUrl: string, publicKey: string): Promise<string> {
+async function registerIdentity(baseUrl: string, publicKey: string, agentName?: string): Promise<string> {
   const url = new URL("/v1/identities", baseUrl);
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
-    body: JSON.stringify({ publicKey })
+    body: JSON.stringify({ publicKey, ...(agentName ? { agentName } : {}) })
   });
 
   if (!response.ok) {
@@ -210,8 +210,20 @@ async function registerIdentity(baseUrl: string, publicKey: string): Promise<str
 
 export class AgentAdapter {
   private identity?: AgentIdentity;
+  private identityPath: string;
+  private agentName?: string;
 
-  constructor(private baseUrl: string, private identityPath: string = IDENTITY_FILE) {}
+  constructor(private baseUrl: string, identityPath?: string, agentName?: string) {
+    this.agentName = agentName;
+    if (identityPath) {
+      this.identityPath = identityPath;
+    } else if (agentName) {
+      const dir = path.dirname(IDENTITY_FILE);
+      this.identityPath = path.join(dir, `agent-identity-${agentName}.json`);
+    } else {
+      this.identityPath = IDENTITY_FILE;
+    }
+  }
 
   async createIdentity(): Promise<{ identityId: string }> {
     const identity = await loadOrCreateIdentity(this.identityPath);
@@ -221,7 +233,7 @@ export class AgentAdapter {
       return { identityId: identity.identityId };
     }
 
-    const identityId = await registerIdentity(this.baseUrl, identity.publicKey);
+    const identityId = await registerIdentity(this.baseUrl, identity.publicKey, this.agentName);
     const storedIdentity: AgentIdentity = { ...identity, identityId };
 
     await writeIdentityFile(this.identityPath, storedIdentity);

@@ -6,7 +6,8 @@ export const createIdentitySchema = z.object({
     .string()
     .trim()
     .min(1, "publicKey is required")
-    .refine(isEd25519PublicKey, "publicKey must be a base64-encoded Ed25519 public key")
+    .refine(isEd25519PublicKey, "publicKey must be a base64-encoded Ed25519 public key"),
+  agentName: z.string().trim().min(1).optional()
 });
 
 export const lockBondSchema = z.object({

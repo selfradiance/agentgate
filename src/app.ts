@@ -1,7 +1,8 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import { createDatabase } from "./db";
 import { AppError } from "./errors";
+import { createLogger, generateRequestId } from "./logger";
 import {
   createIdentitySchema,
   executeActionSchema,
@@ -48,15 +49,28 @@ function assertSignedRequest(
 export type AppInstance = FastifyInstance & {
   sweep(): number;
   sweepExpiredActions(): { slashedCount: number };
+  getDashboardData(): { identities: unknown[]; bonds: unknown[]; actions: unknown[] };
 };
 
 export function createApp(options: AppOptions = {}): AppInstance {
   const database = createDatabase(options.dbPath ?? "data/ibp.sqlite");
   const service = new IbpService(database.db);
-  const app = Fastify({ logger: false });
+  const requestStartTimes = new WeakMap<FastifyRequest, number>();
+  const app = Fastify({ logger: false, genReqId: () => generateRequestId() });
 
   app.addHook("onClose", async () => {
     database.close();
+  });
+
+  app.addHook("onRequest", async (request) => {
+    requestStartTimes.set(request, Date.now());
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    const startTime = requestStartTimes.get(request);
+    const durationMs = startTime !== undefined ? Date.now() - startTime : -1;
+    const logger = createLogger(request.id);
+    logger.info(`${request.method} ${request.url} ${reply.statusCode} ${durationMs}ms`);
   });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -141,6 +155,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
 
   return Object.assign(app, {
     sweep: () => service.sweepExpiredActions().slashedCount,
-    sweepExpiredActions: () => service.sweepExpiredActions()
+    sweepExpiredActions: () => service.sweepExpiredActions(),
+    getDashboardData: () => service.getDashboardData()
   });
 }

@@ -12,7 +12,8 @@
     "spam": "tsx scripts/spam-sim.ts",
     "example:toy-agent": "tsx examples/toy-agent.ts",
     "example:adapter-demo": "tsx examples/adapter-demo.ts",
-    "mcp:server": "tsx src/mcp/server.ts"
+    "mcp:server": "tsx src/mcp/server.ts",
+    "restart": "lsof -ti:3000 | xargs kill -9 2>/dev/null; npm run dev"
   },
   "engines": {
     "node": ">=20"

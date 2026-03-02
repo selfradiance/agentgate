@@ -33,12 +33,13 @@ export class IbpService {
 
     this.db
       .prepare(
-        `INSERT INTO identities (id, public_key, created_at)
-         VALUES (@id, @public_key, @created_at)`
+        `INSERT INTO identities (id, public_key, agent_name, created_at)
+         VALUES (@id, @public_key, @agent_name, @created_at)`
       )
       .run({
         id,
         public_key: input.publicKey,
+        agent_name: input.agentName ?? null,
         created_at: createdAt
       });
 
@@ -300,6 +301,13 @@ export class IbpService {
     }
 
     return { slashedCount };
+  }
+
+  getDashboardData() {
+    const identities = this.db.prepare(`SELECT * FROM identities`).all();
+    const bonds = this.db.prepare(`SELECT * FROM bonds`).all();
+    const actions = this.db.prepare(`SELECT * FROM actions`).all();
+    return { identities, bonds, actions };
   }
 
   getIdentityPublicKey(identityId: string) {

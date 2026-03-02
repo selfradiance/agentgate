@@ -20,6 +20,7 @@ export function createDatabase(filename: string): DatabaseHandle {
     CREATE TABLE IF NOT EXISTS identities (
       id TEXT PRIMARY KEY,
       public_key TEXT NOT NULL,
+      agent_name TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -65,6 +66,13 @@ export function createDatabase(filename: string): DatabaseHandle {
     CREATE INDEX IF NOT EXISTS action_execute_buckets_identity_requested_at_idx
       ON action_execute_buckets(identity_id, requested_at);
   `);
+
+  // Migration: add agent_name column to existing databases that predate it
+  try {
+    db.exec(`ALTER TABLE identities ADD COLUMN agent_name TEXT`);
+  } catch {
+    // Column already exists — no-op
+  }
 
   return {
     db,

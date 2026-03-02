@@ -6,5 +6,5 @@ coverage/
 *.db-shm
 *.db-wal
 .DS_Store
-agent-identity.json
+agent-identity*.json
 AGENTGATE_PROJECT_CONTEXT.md

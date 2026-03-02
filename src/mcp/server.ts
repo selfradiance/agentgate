@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { AgentAdapter } from "../agent-adapter";
+import { createLogger, generateRequestId } from "../logger";
 
 // ---- Tool input schemas ----
 const lockBondSchema = z.object({
@@ -72,42 +73,56 @@ export function createMcpServer(adapter: AgentAdapter): Server {
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const toolName = req.params?.name;
     const args = req.params?.arguments ?? {};
+    const requestId = generateRequestId();
+    const logger = createLogger(requestId);
 
-    if (toolName === "lock_bond") {
-      const input = lockBondSchema.parse(args);
-      const result = await adapter.lockBond(input.amount_cents, input.ttl_seconds, input.reason);
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    logger.info(`MCP tool called: ${toolName}`);
+
+    try {
+      if (toolName === "lock_bond") {
+        const input = lockBondSchema.parse(args);
+        const result = await adapter.lockBond(input.amount_cents, input.ttl_seconds, input.reason);
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "execute_bonded_action") {
+        const input = executeBondedActionSchema.parse(args);
+        const result = await adapter.executeBondedAction(
+          input.bondId,
+          input.actionType,
+          input.payload,
+          input.exposure_cents
+        );
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "resolve_action") {
+        const input = resolveActionSchema.parse(args);
+        const result = await adapter.resolveAction(input.actionId, input.outcome);
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "get_reputation") {
+        const input = getReputationSchema.parse(args);
+        const result = await adapter.getReputation(input.identityId);
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "create_identity") {
+        const result = await adapter.createIdentity();
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      throw new Error(`Unknown tool: ${toolName}`);
+    } catch (err) {
+      logger.error(`MCP tool error: ${toolName} error=${String(err)}`);
+      throw err;
     }
-
-    if (toolName === "execute_bonded_action") {
-      const input = executeBondedActionSchema.parse(args);
-      const result = await adapter.executeBondedAction(
-        input.bondId,
-        input.actionType,
-        input.payload,
-        input.exposure_cents
-      );
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-
-    if (toolName === "resolve_action") {
-      const input = resolveActionSchema.parse(args);
-      const result = await adapter.resolveAction(input.actionId, input.outcome);
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-
-    if (toolName === "get_reputation") {
-      const input = getReputationSchema.parse(args);
-      const result = await adapter.getReputation(input.identityId);
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-
-    if (toolName === "create_identity") {
-      const result = await adapter.createIdentity();
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-
-    throw new Error(`Unknown tool: ${toolName}`);
   });
 
   return server;
@@ -118,7 +133,11 @@ const isMain = process.argv[1] !== undefined &&
   fileURLToPath(import.meta.url) === new URL(process.argv[1], import.meta.url).pathname;
 
 if (isMain) {
-  const adapter = new AgentAdapter(process.env.AGENTGATE_BASE_URL ?? "http://127.0.0.1:3000");
+  const adapter = new AgentAdapter(
+    process.env.AGENTGATE_BASE_URL ?? "http://127.0.0.1:3000",
+    undefined,
+    process.env.AGENTGATE_AGENT_NAME
+  );
   const server = createMcpServer(adapter);
 
   async function main() {
@@ -127,7 +146,7 @@ if (isMain) {
   }
 
   main().catch((err) => {
-    console.error(err);
+    createLogger().error(`MCP server fatal error: ${String(err)}`);
     process.exit(1);
   });
 }
