@@ -1,10 +1,18 @@
-# AgentGate (Intent Bond Protocol)
+# AgentGate
 
-AgentGate is a collateralized execution engine for AI agents.
+A collateralized execution gate for AI agents.
 
-It enforces economic accountability through signed identities and reusable bond-based exposure tracking.
+## Why AgentGate?
 
-AgentGate is designed to act as a deterministic choke point between autonomous agents and high-impact external actions (e.g., market orders, API calls, financial operations).
+As AI agents reduce the marginal cost of sending bids, API calls, negotiations, and form submissions, systems designed around human friction become vulnerable to synthetic pressure. A single agent can flood a marketplace, spam a booking system, or overwhelm an API — all at near-zero cost.
+
+Traditional defenses don't solve this. Rate limits cap volume but don't make bad actions costly. Auth tokens verify identity but don't require skin in the game. Policy engines enforce rules but can't make an agent economically accountable for its behavior.
+
+AgentGate takes a different approach: **before an agent can execute a high-impact action, it must post a bond as collateral.** If the action succeeds, the bond is released. If the agent behaves maliciously, the bond is slashed. This makes bad behavior economically irrational — the agent loses more than it gains.
+
+AgentGate sits as a deterministic choke point between autonomous agents and external actions (market orders, API calls, financial operations), enforcing economic accountability through signed identities and reusable bond-based exposure tracking.
+
+> **[Threat Model →](docs/threat-model.md)** — What AgentGate defends against, what it doesn't, and why.
 
 ---
 
@@ -144,9 +152,7 @@ npm run example:toy-agent
 
 ## Project Files
 
-- src/ — core server logic
-- examples/ — demo agents and mock exchange
-- PROJECT_CONTEXT.md — authoritative architecture snapshot
-- marketgate_build_log.md — chronological build history
-
-> Reminder: After each major change, update this file and push to GitHub before starting the next phase.
+* src/ — core server logic
+* test/ — test suite (16 tests)
+* examples/ — demo agents and mock exchange
+* docs/ — threat model and design docs
