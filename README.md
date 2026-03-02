@@ -30,6 +30,70 @@ After any major architectural milestone (new layer added, schema change, securit
 
 ---
 
+## Quick Integration
+
+AgentGate works with any agent that can make HTTP requests. The flow is four steps: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
+
+**1. Register an identity**
+```bash
+curl -s http://127.0.0.1:3000/v1/identities/register \
+  -H 'content-type: application/json' \
+  -d '{ "publicKey": "<base64-encoded Ed25519 public key>" }'
+```
+
+Returns an `identityId` (e.g., `id_abc123`).
+
+**2. Lock a bond**
+
+All state-changing requests must be signed. Headers required on every request below:
+
+- `x-agentgate-timestamp` — current time in epoch milliseconds
+- `x-agentgate-signature` — Ed25519 signature over `sha256(timestamp + JSON.stringify(body))`
+```bash
+curl -s http://127.0.0.1:3000/v1/bonds/lock \
+  -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -d '{ "identityId": "id_abc123", "amount_cents": 5000, "ttl_seconds": 300, "reason": "marketplace bid" }'
+```
+
+Returns a `bondId`.
+
+**3. Execute a bonded action**
+```bash
+curl -s http://127.0.0.1:3000/v1/actions/execute \
+  -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -d '{ "identityId": "id_abc123", "bondId": "bond_xyz", "actionType": "place-bid", "payload": { "item": "widget-42", "price": 1500 }, "exposure_cents": 1500 }'
+```
+
+Returns an `actionId`. The bond's available capacity is reduced by `ceil(exposure_cents × 1.2)`.
+
+**4. Resolve the action**
+```bash
+curl -s http://127.0.0.1:3000/v1/actions/<actionId>/resolve \
+  -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -d '{ "outcome": "success" }'
+```
+
+Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, exposure is released. On malicious, the bond is slashed.
+
+### Common Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(timestamp + JSON.stringify(body))` with the correct private key |
+| `TIMESTAMP_EXPIRED` | Timestamp is older than 60 seconds | Use a fresh timestamp for each request |
+| `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
+| `RATE_LIMIT_EXCEEDED` | More than 10 executes in 60 seconds for this identity | Wait and retry, or spread actions across a longer window |
+
+For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
+
+---
+
 ## Core Concepts
 
 ### Identity
