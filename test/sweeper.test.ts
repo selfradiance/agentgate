@@ -57,8 +57,8 @@ afterEach(async () => {
   }
 });
 
-describe("sweepTimedOutActions", () => {
-  it("slashes the bond and marks the action timed_out when the bond TTL has elapsed", async () => {
+describe("sweepExpiredActions", () => {
+  it("slashes the bond and marks the action malicious when the bond TTL has elapsed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
 

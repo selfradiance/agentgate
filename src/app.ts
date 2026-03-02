@@ -45,7 +45,10 @@ function assertSignedRequest(
   }
 }
 
-export type AppInstance = FastifyInstance & { sweep(): number };
+export type AppInstance = FastifyInstance & {
+  sweep(): number;
+  sweepExpiredActions(): { slashedCount: number };
+};
 
 export function createApp(options: AppOptions = {}): AppInstance {
   const database = createDatabase(options.dbPath ?? "data/ibp.sqlite");
@@ -136,5 +139,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
     reply.send(service.getStats());
   });
 
-  return Object.assign(app, { sweep: () => service.sweepTimedOutActions() });
+  return Object.assign(app, {
+    sweep: () => service.sweepExpiredActions().slashedCount,
+    sweepExpiredActions: () => service.sweepExpiredActions()
+  });
 }

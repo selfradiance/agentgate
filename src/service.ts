@@ -269,36 +269,37 @@ export class IbpService {
     return stats;
   }
 
-  sweepTimedOutActions(): number {
+  /**
+   * Finds all open actions whose bond has expired (created_at + ttl_seconds in the past)
+   * and auto-resolves each one as 'malicious', slashing the bond. This enforces the
+   * economic guarantee that agents cannot leave actions open indefinitely to avoid
+   * consequences. Returns the number of actions that were slashed.
+   */
+  sweepExpiredActions(): { slashedCount: number } {
     const now = new Date().toISOString();
 
-    const timedOut = this.db
+    const expired = this.db
       .prepare(
-        `SELECT a.id AS action_id, b.id AS bond_id, b.amount_cents
+        `SELECT a.id AS action_id
          FROM actions a
          JOIN bonds b ON a.bond_id = b.id
          WHERE a.status = 'open'
            AND b.expires_at <= @now`
       )
-      .all({ now }) as Array<{ action_id: string; bond_id: string; amount_cents: number }>;
+      .all({ now }) as Array<{ action_id: string }>;
 
-    for (const row of timedOut) {
-      const settlement = this.calculateSettlement(row.amount_cents, "malicious");
+    let slashedCount = 0;
 
-      const tx = this.db.transaction(() => {
-        this.db
-          .prepare(`UPDATE actions SET status = 'timed_out', resolved_at = @resolved_at WHERE id = @id`)
-          .run({ id: row.action_id, resolved_at: now });
-
-        this.db
-          .prepare(`UPDATE bonds SET status = @status, outstanding_exposure_cents = 0 WHERE id = @id`)
-          .run({ id: row.bond_id, status: settlement.bondStatus });
-      });
-
-      tx();
+    for (const row of expired) {
+      try {
+        this.resolveAction(row.action_id, { outcome: "malicious" });
+        slashedCount++;
+      } catch {
+        // Action may have already been resolved concurrently — skip it
+      }
     }
 
-    return timedOut.length;
+    return { slashedCount };
   }
 
   getIdentityPublicKey(identityId: string) {

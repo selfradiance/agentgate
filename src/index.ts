@@ -12,17 +12,24 @@ async function main() {
       host: process.env.HOST || "127.0.0.1",
       port: Number(process.env.PORT || 3000)
     });
-
-    setInterval(() => {
-      const swept = app.sweep();
-      if (swept > 0) {
-        app.log.info(`Sweeper: slashed ${swept} timed-out action(s)`);
-      }
-    }, SWEEP_INTERVAL_MS);
   } catch (error) {
     app.log.error(error);
     process.exit(1);
   }
+
+  const sweepInterval = setInterval(() => {
+    const result = app.sweepExpiredActions();
+    console.log(`[sweeper] slashed ${result.slashedCount} expired actions`);
+  }, SWEEP_INTERVAL_MS);
+
+  const shutdown = async () => {
+    clearInterval(sweepInterval);
+    await app.close();
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 void main();
