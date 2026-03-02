@@ -81,9 +81,9 @@ function hasKeyMaterial(value: unknown): value is GeneratedIdentity {
   return typeof candidate.publicKey === "string" && typeof candidate.privateKey === "string";
 }
 
-async function loadOrCreateIdentity(): Promise<AgentIdentity | GeneratedIdentity> {
+async function loadOrCreateIdentity(identityPath: string): Promise<AgentIdentity | GeneratedIdentity> {
   try {
-    const existing = await fs.promises.readFile(IDENTITY_FILE, "utf8");
+    const existing = await fs.promises.readFile(identityPath, "utf8");
     const parsed: unknown = JSON.parse(existing);
 
     if (isAgentIdentity(parsed)) {
@@ -118,8 +118,8 @@ async function loadOrCreateIdentity(): Promise<AgentIdentity | GeneratedIdentity
   };
 }
 
-async function writeIdentityFile(identity: AgentIdentity) {
-  await fs.promises.writeFile(IDENTITY_FILE, `${JSON.stringify(identity, null, 2)}\n`, "utf8");
+async function writeIdentityFile(identityPath: string, identity: AgentIdentity) {
+  await fs.promises.writeFile(identityPath, `${JSON.stringify(identity, null, 2)}\n`, "utf8");
 }
 
 async function parseErrorBody(response: Response) {
@@ -211,10 +211,10 @@ async function registerIdentity(baseUrl: string, publicKey: string): Promise<str
 export class AgentAdapter {
   private identity?: AgentIdentity;
 
-  constructor(private baseUrl: string) {}
+  constructor(private baseUrl: string, private identityPath: string = IDENTITY_FILE) {}
 
   async createIdentity(): Promise<{ identityId: string }> {
-    const identity = await loadOrCreateIdentity();
+    const identity = await loadOrCreateIdentity(this.identityPath);
 
     if ("identityId" in identity) {
       this.identity = identity;
@@ -224,7 +224,7 @@ export class AgentAdapter {
     const identityId = await registerIdentity(this.baseUrl, identity.publicKey);
     const storedIdentity: AgentIdentity = { ...identity, identityId };
 
-    await writeIdentityFile(storedIdentity);
+    await writeIdentityFile(this.identityPath, storedIdentity);
     this.identity = storedIdentity;
     return { identityId };
   }

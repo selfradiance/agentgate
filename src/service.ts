@@ -125,7 +125,8 @@ export class IbpService {
       this.db
         .prepare(`
     UPDATE bonds
-    SET outstanding_exposure_cents = outstanding_exposure_cents + @delta
+    SET outstanding_exposure_cents = outstanding_exposure_cents + @delta,
+        status = 'occupied'
     WHERE id = @bond_id
   `)
         .run({
@@ -180,12 +181,12 @@ export class IbpService {
   }
   resolveAction(actionId: string, input: ResolveActionInput) {
     const action = this.getActionOrThrow(actionId);
-    const exposureCents = action.exposure_cents;
     if (action.status !== "open") {
       throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
     }
 
     const bond = this.getBondOrThrow(action.bond_id);
+    const settlement = this.calculateSettlement(bond.amount_cents, input.outcome);
     const resolvedAt = new Date().toISOString();
 
     const tx = this.db.transaction(() => {
@@ -202,25 +203,15 @@ export class IbpService {
         });
 
       this.db
-        .prepare(`
-    UPDATE bonds
-    SET outstanding_exposure_cents = outstanding_exposure_cents - @exposure_delta,
-        amount_cents = CASE
-          WHEN @outcome = 'malicious'
-          THEN MAX(amount_cents - @exposure_delta, 0)
-          ELSE amount_cents
-        END,
-        slashed_cents = slashed_cents + CASE
-          WHEN @outcome = 'malicious'
-          THEN @exposure_delta
-          ELSE 0
-        END
-    WHERE id = @id
-  `)
+        .prepare(
+          `UPDATE bonds
+           SET status = @status,
+               outstanding_exposure_cents = 0
+           WHERE id = @id`
+        )
         .run({
           id: bond.id,
-          exposure_delta: exposureCents,
-          outcome: input.outcome
+          status: settlement.bondStatus
         });
     });
 
@@ -228,7 +219,10 @@ export class IbpService {
 
     return {
       actionId,
-      outcome: input.outcome
+      outcome: input.outcome,
+      refundCents: settlement.refundCents,
+      burnedCents: settlement.burnedCents,
+      slashedCents: settlement.slashedCents
     };
   }
 
@@ -262,8 +256,8 @@ export class IbpService {
         `SELECT
            (SELECT COUNT(*) FROM identities) AS totalIdentities,
            (SELECT COUNT(*) FROM actions) AS totalActions,
-           (SELECT COUNT(*) FROM bonds WHERE status = 'active') AS totalActiveBonds,
-           (SELECT COALESCE(SUM(amount_cents), 0) FROM bonds WHERE status = 'active') AS totalLockedCents`
+           (SELECT COUNT(*) FROM bonds WHERE status IN ('active', 'occupied')) AS totalActiveBonds,
+           (SELECT COALESCE(SUM(amount_cents), 0) FROM bonds WHERE status IN ('active', 'occupied')) AS totalLockedCents`
       )
       .get() as {
         totalIdentities: number;
