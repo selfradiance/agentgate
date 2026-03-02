@@ -269,6 +269,38 @@ export class IbpService {
     return stats;
   }
 
+  sweepTimedOutActions(): number {
+    const now = new Date().toISOString();
+
+    const timedOut = this.db
+      .prepare(
+        `SELECT a.id AS action_id, b.id AS bond_id, b.amount_cents
+         FROM actions a
+         JOIN bonds b ON a.bond_id = b.id
+         WHERE a.status = 'open'
+           AND b.expires_at <= @now`
+      )
+      .all({ now }) as Array<{ action_id: string; bond_id: string; amount_cents: number }>;
+
+    for (const row of timedOut) {
+      const settlement = this.calculateSettlement(row.amount_cents, "malicious");
+
+      const tx = this.db.transaction(() => {
+        this.db
+          .prepare(`UPDATE actions SET status = 'timed_out', resolved_at = @resolved_at WHERE id = @id`)
+          .run({ id: row.action_id, resolved_at: now });
+
+        this.db
+          .prepare(`UPDATE bonds SET status = @status, outstanding_exposure_cents = 0 WHERE id = @id`)
+          .run({ id: row.bond_id, status: settlement.bondStatus });
+      });
+
+      tx();
+    }
+
+    return timedOut.length;
+  }
+
   getIdentityPublicKey(identityId: string) {
     return this.getIdentityOrThrow(identityId).public_key;
   }

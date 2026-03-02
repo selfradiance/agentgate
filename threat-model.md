@@ -129,8 +129,8 @@ AgentGate does not handle TLS termination, DDoS protection, or network-layer sec
 | Forged requests | Ed25519 signature verification | ✅ Implemented |
 | Outbound SSRF | HTTP allowlist + protocol/timeout/size limits | ✅ Implemented |
 | Malicious actions | Bond slashing + reputation penalty | ✅ Implemented |
-| Unresolved action timeout | Background sweeper + auto-slash | ✅ Implemented — via `sweepTimedOutActions()` in service.ts — runs every 60 seconds, slashes bonds whose TTL has expired with unresolved actions |
-| Bond auto-expiry | TTL enforcement via background process | ✅ Implemented — via `sweepTimedOutActions()` in service.ts — runs every 60 seconds, slashes bonds whose TTL has expired with unresolved actions |
+| Unresolved action timeout | Background sweeper + auto-slash | ⏳ Planned (highest priority) |
+| Bond auto-expiry | TTL enforcement via background process | ⏳ Planned |
 | Identity revocation | Ban list or revocation mechanism | 📋 Future |
 | Sybil / identity farming | Proof-of-stake or external identity binding | 📋 Future |
 | Real economic collateral | Payment system integration | 📋 Future |

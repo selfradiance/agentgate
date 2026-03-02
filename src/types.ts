@@ -1,6 +1,6 @@
-export type BondStatus = "active" | "released" | "expired" | "burned" | "slashed";
-export type ActionStatus = "open" | "success" | "failed" | "malicious";
-export type ResolveOutcome = Exclude<ActionStatus, "open">;
+export type BondStatus = "active" | "occupied" | "released" | "expired" | "burned" | "slashed";
+export type ActionStatus = "open" | "success" | "failed" | "malicious" | "timed_out";
+export type ResolveOutcome = "success" | "failed" | "malicious";
 
 export interface IdentityRecord {
   id: string;
