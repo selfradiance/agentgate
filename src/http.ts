@@ -1,7 +1,7 @@
 // src/http.ts
 import { createLogger } from "./logger";
 const DEFAULT_TIMEOUT_MS = Number(process.env.AGENTGATE_HTTP_TIMEOUT_MS || 2500);
-const DEFAULT_MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_HTTP_MAX_RESPONSE_BYTES || 8192);
+const MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_MAX_RESPONSE_BYTES || 1_048_576);
 // Comma-separated list, optional (e.g. "localhost,127.0.0.1")
 // If not provided, we default to localhost-only.
 const ALLOWLIST_ENV = (process.env.AGENTGATE_HTTP_ALLOWLIST || "").trim();
@@ -99,9 +99,16 @@ export async function postJson(url: string, body: unknown) {
       if (value) {
         totalBytes += value.length;
 
-        if (totalBytes > DEFAULT_MAX_RESPONSE_BYTES) {
+        if (totalBytes > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          createLogger().warn("outbound response too large", {
+            event: "response_too_large",
+            url,
+            totalBytes,
+            maxBytes: MAX_RESPONSE_BYTES,
+          });
           throw new Error(
-            `Response too large: ${totalBytes} bytes (max ${DEFAULT_MAX_RESPONSE_BYTES})`
+            `RESPONSE_TOO_LARGE: ${totalBytes} bytes received (max ${MAX_RESPONSE_BYTES})`
           );
         }
 
