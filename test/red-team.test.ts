@@ -277,6 +277,67 @@ describe("Attack 1.2 — rapid resolve-then-execute cycle", () => {
   });
 });
 
+describe("Attack 1.3 — resolve an already-resolved action", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects a second resolve on an already-settled action", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.3",
+    });
+
+    const { actionId } = await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-1.3",
+      exposure_cents: 500,
+    });
+
+    // First resolve: success — this is the legitimate settlement
+    service.resolveAction(actionId, { outcome: "success" });
+
+    const afterFirstResolve = handle.db
+      .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; slashed_cents: number };
+    expect(afterFirstResolve.status).toBe("released");
+    expect(afterFirstResolve.slashed_cents).toBe(0);
+
+    // Second resolve: malicious — must be rejected; the action is already settled
+    // If this succeeds, an already-released bond would be re-slashed, corrupting state.
+    expect(() =>
+      service.resolveAction(actionId, { outcome: "malicious" })
+    ).toThrow();
+
+    // Bond must still be 'released' with zero slashed_cents — not re-slashed
+    const afterSecondResolve = handle.db
+      .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; slashed_cents: number };
+    expect(afterSecondResolve.status).toBe("released");
+    expect(afterSecondResolve.slashed_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
