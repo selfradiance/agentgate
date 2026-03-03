@@ -7,9 +7,31 @@ import { createMcpServer } from "./server.js";
 
 const transports = new Map<string, StreamableHTTPServerTransport>();
 
+function mcpAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const secret = process.env.AGENTGATE_MCP_KEY;
+  if (!secret) {
+    next();
+    return;
+  }
+  const provided = Array.isArray(req.headers["x-agentgate-key"])
+    ? req.headers["x-agentgate-key"][0]
+    : req.headers["x-agentgate-key"];
+  if (!provided || provided !== secret) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
+    return;
+  }
+  next();
+}
+
 export function startMcpHttpServer(port: number) {
   const app = express();
   app.use(express.json());
+
+  if (!process.env.AGENTGATE_MCP_KEY) {
+    process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP auth is disabled, all requests are allowed\n");
+  }
+
+  app.use("/mcp", mcpAuthMiddleware);
 
   // POST /mcp — handles initialize (new session) and subsequent requests
   app.post("/mcp", async (req, res) => {
