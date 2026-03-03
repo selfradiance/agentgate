@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createApp } from "./app";
 import { backupDatabase } from "./backup";
 import { registerDashboard } from "./dashboard";
