@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 8)
+**Last updated:** 2026-03-03 (Session 9)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -143,7 +143,7 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 
 ## Dashboard
 
-- **URL:** http://127.0.0.1:3000/dashboard (server must be running)
+- **URL (local):** http://127.0.0.1:3000/dashboard — **URL (remote):** https://agentgate.run/dashboard
 - **Summary bar:** identity count, bond count, active bonds, action count
 - **Reputation Scores table:** per-identity score with color coding (green positive, red negative, gray zero)
 - **Bonds table:** all bonds with truncated IDs, color-coded status, hover for full values
@@ -171,12 +171,22 @@ Backups: data/backups/ (one backup per startup, 5 most recent kept, older ones a
 ### Claude Desktop MCP config:
 File: ~/Library/Application Support/Claude/claude_desktop_config.json
 
-**Option A — HTTP transport via mcp-remote (recommended):**
+**Option A — HTTP transport via mcp-remote, local (recommended):**
 {
   "mcpServers": {
     "agentgate": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "http://127.0.0.1:3001/mcp"]
+    }
+  }
+}
+
+**Option A2 — HTTP transport via mcp-remote, remote (agentgate.run):**
+{
+  "mcpServers": {
+    "agentgate": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.agentgate.run/mcp"]
     }
   }
 }
@@ -206,16 +216,18 @@ To run a named agent with stdio (e.g. "trader"), add an env field:
 The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to work.
 
 ### Remote Server (DigitalOcean):
+- **Domain:** agentgate.run (registered on Namecheap)
 - **Server IP:** 174.138.63.42
 - **Provider:** DigitalOcean, Ubuntu 24.04, $4/month droplet
 - **To connect:** ssh root@174.138.63.42
-- **To start:** cd agentgate && pm2 restart agentgate (or pm2 start npx --name agentgate -- tsx src/index.ts if not yet saved)
-- **Dashboard:** http://174.138.63.42:3000/dashboard
-- **MCP endpoint:** http://174.138.63.42:3001/mcp
-- Both servers bind to 0.0.0.0 for remote access
-- ✅ UFW firewall enabled — only ports 22 (SSH), 3000 (dashboard), 3001 (MCP) are open
-- ✅ Auth in place on both ports (x-agentgate-key on MCP, x-agentgate-key + Basic Auth on REST/dashboard)
-- ⚠️ No TLS — traffic is unencrypted
+- **To start:** cd agentgate && pm2 restart agentgate
+- **Dashboard:** https://agentgate.run/dashboard
+- **MCP endpoint:** https://mcp.agentgate.run/mcp
+- Both Node servers bind to 127.0.0.1 — only accessible via Caddy reverse proxy
+- ✅ UFW firewall enabled — only ports 22 (SSH), 80 (HTTP), 443 (HTTPS) are open; ports 3000 and 3001 are no longer publicly accessible
+- ✅ TLS live via Caddy reverse proxy with auto-managed Let's Encrypt certificates
+- ✅ Auth in place on both services (x-agentgate-key on MCP, x-agentgate-key + Basic Auth on REST/dashboard)
+- **Caddy config:** /etc/caddy/Caddyfile — agentgate.run → 127.0.0.1:3000, mcp.agentgate.run → 127.0.0.1:3001
 - **Process manager:** pm2 keeps the server running in the background, auto-restarts on crash, auto-starts on reboot
 - **Useful pm2 commands:** pm2 status, pm2 logs agentgate, pm2 restart agentgate, pm2 stop agentgate
 
@@ -265,6 +277,7 @@ All 21 tests should pass.
 35. ✅ MCP endpoint authentication: static shared-secret header (x-agentgate-key) on MCP HTTP server, middleware in http-server.ts, env var AGENTGATE_MCP_KEY loaded via dotenv, 401 for unauthorized requests, warning logged when key not set
 36. ✅ REST API + dashboard authentication: shared-secret header (x-agentgate-key) on all POST routes, HTTP Basic Auth on /dashboard with browser login popup, env var AGENTGATE_REST_KEY, skips auth when key not set (local dev friendly), README updated
 37. ✅ pm2 process manager on remote server: AgentGate stays running after SSH disconnect, auto-restarts on crash, auto-starts on droplet reboot (pm2 startup + pm2 save)
+38. ✅ TLS via Caddy reverse proxy: domain agentgate.run registered, Caddy installed on DigitalOcean server, auto-managed Let's Encrypt certificates for agentgate.run and mcp.agentgate.run, UFW updated to allow only ports 22/80/443 (3000/3001 no longer publicly accessible), Node servers now bind to 127.0.0.1
 
 ---
 
@@ -273,13 +286,11 @@ All 21 tests should pass.
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
 - **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
 - **Ghost server processes** — old tsx processes can linger on port 3000; use npm run restart to avoid this
-- **No TLS** — both ports (3000 and 3001) are HTTP only. Auth is now in place on both ports, but traffic is unencrypted.
-
 ---
 
 ## Next Steps (in priority order)
 
-1. **TLS via Caddy or Nginx + Let's Encrypt** — HTTPS for both ports so traffic is encrypted
+*(No items currently — all planned milestones complete)*
 
 ---
 ---

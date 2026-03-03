@@ -186,6 +186,7 @@ Both transports require the AgentGate HTTP server (`npm run restart`) to be runn
 
 ### Claude Desktop config (HTTP transport via mcp-remote)
 
+**Local:**
 ```json
 {
   "mcpServers": {
@@ -197,13 +198,25 @@ Both transports require the AgentGate HTTP server (`npm run restart`) to be runn
 }
 ```
 
+**Remote (agentgate.run):**
+```json
+{
+  "mcpServers": {
+    "agentgate": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.agentgate.run/mcp"]
+    }
+  }
+}
+```
+
 File location: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ---
 
 ## Dashboard
 
-AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (server must be running). It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
+AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (local) or https://agentgate.run/dashboard (remote). Server must be running. It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
 
 ---
 
@@ -273,9 +286,13 @@ AGENTGATE_REST_KEY=your-long-random-secret
 
 ## Remote Deployment
 
-AgentGate can be deployed to a remote server (tested on DigitalOcean Ubuntu 24.04). Both the Fastify API (port 3000) and MCP HTTP server (port 3001) bind to `0.0.0.0`, making them accessible over the internet.
+AgentGate is deployed to a DigitalOcean droplet (Ubuntu 24.04) at [agentgate.run](https://agentgate.run).
 
-> **Security status:** UFW firewall enabled (ports 22, 3000, 3001 only). Auth is in place on both ports (`x-agentgate-key` on MCP, `x-agentgate-key` + Basic Auth on REST/dashboard). TLS is still pending.
+> **Security status:** UFW firewall enabled (ports 22, 80, 443 only — ports 3000 and 3001 are no longer publicly accessible). TLS live via Caddy reverse proxy with auto-managed Let's Encrypt certificates. Auth in place on both services (`x-agentgate-key` on MCP, `x-agentgate-key` + Basic Auth on REST/dashboard).
+
+- **Dashboard:** https://agentgate.run/dashboard
+- **MCP endpoint:** https://mcp.agentgate.run/mcp
+- **Caddy config:** `/etc/caddy/Caddyfile` on the server — proxies agentgate.run → 127.0.0.1:3000 and mcp.agentgate.run → 127.0.0.1:3001
 
 The server is managed by **pm2**, which keeps it running after you disconnect from SSH and restarts it automatically on crash or reboot.
 
