@@ -208,12 +208,14 @@ export class IbpService {
         .prepare(
           `UPDATE bonds
            SET status = @status,
-               outstanding_exposure_cents = 0
+               outstanding_exposure_cents = 0,
+               slashed_cents = slashed_cents + @slashed_cents
            WHERE id = @id`
         )
         .run({
           id: bond.id,
-          status: settlement.bondStatus
+          status: settlement.bondStatus,
+          slashed_cents: settlement.slashedCents
         });
     });
 
