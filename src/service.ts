@@ -88,6 +88,9 @@ export class IbpService {
 
     const bond = this.getBondOrThrow(input.bondId);
     const declaredExposureCents = input.exposure_cents;
+    if (declaredExposureCents < 0) {
+      throw new AppError(400, "INVALID_EXPOSURE", "exposure_cents cannot be negative");
+    }
     const effectiveExposureCents = Math.ceil(declaredExposureCents * RISK_MULTIPLIER);
     if (bond.outstanding_exposure_cents + effectiveExposureCents > bond.amount_cents) {
       throw new AppError(

@@ -402,6 +402,109 @@ describe("Attack 1.4 — execute against a burned/slashed bond", () => {
   });
 });
 
+describe("Attack 1.5A — zero exposure declaration", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  // Design decision: exposure_cents = 0 is accepted. The effective exposure is
+  // ceil(0 × 1.2) = 0, which never exceeds bond capacity. The agent gets a
+  // zero-stake action — economically harmless but a valid no-op. We document
+  // this behavior rather than reject it, because the real economic stake is
+  // the bond itself (already locked), not any single action's declared exposure.
+  it("accepts an action with exposure_cents 0 (zero-stake no-op)", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.5a",
+    });
+
+    const { actionId } = await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-1.5a",
+      exposure_cents: 0,
+    });
+
+    expect(actionId).toBeTruthy();
+
+    // Outstanding exposure must be 0 — no capacity consumed
+    const bond = handle.db
+      .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { outstanding_exposure_cents: number };
+    expect(bond.outstanding_exposure_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
+describe("Attack 1.5B — negative exposure declaration", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects an action with negative exposure_cents", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.5b",
+    });
+
+    // Negative exposure would make the effective value negative, pass the
+    // capacity check, and reduce outstanding_exposure_cents below zero —
+    // violating invariant 2. The service must reject it before any state change.
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.5b",
+        exposure_cents: -100,
+      })
+    ).rejects.toMatchObject({ code: "INVALID_EXPOSURE" });
+
+    // Bond must be untouched — still active, zero outstanding
+    const bond = handle.db
+      .prepare(`SELECT status, outstanding_exposure_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; outstanding_exposure_cents: number };
+    expect(bond.status).toBe("active");
+    expect(bond.outstanding_exposure_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
