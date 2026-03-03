@@ -231,6 +231,14 @@ npm run test
 
 ---
 
+## Remote Deployment
+
+AgentGate can be deployed to a remote server (tested on DigitalOcean Ubuntu 24.04). Both the Fastify API (port 3000) and MCP HTTP server (port 3001) bind to `0.0.0.0`, making them accessible over the internet.
+
+> **Note:** The remote endpoint is not yet secured — no TLS, no firewall, no auth on the MCP endpoint. Auth and TLS are planned next steps. Do not leave a public instance running unattended until hardened.
+
+---
+
 ## Demo: MarketGate
 
 Start mock exchange:

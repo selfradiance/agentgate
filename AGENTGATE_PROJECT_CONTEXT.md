@@ -204,6 +204,16 @@ To run a named agent with stdio (e.g. "trader"), add an env field:
 
 The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to work.
 
+### Remote Server (DigitalOcean):
+- **Server IP:** 174.138.63.42
+- **Provider:** DigitalOcean, Ubuntu 24.04, $4/month droplet
+- **To connect:** ssh root@174.138.63.42
+- **To start:** cd agentgate && npm run dev
+- **Dashboard:** http://174.138.63.42:3000/dashboard
+- **MCP endpoint:** http://174.138.63.42:3001/mcp
+- Both servers bind to 0.0.0.0 for remote access
+- ⚠️ Server is NOT yet secured — no auth on endpoints, no firewall, no TLS
+
 ### Run tests:
 npm run test
 
@@ -245,6 +255,7 @@ All 21 tests should pass.
 30. ✅ v0.1.0 tagged and pushed — README cleaned up (removed internal workflow section, added Dashboard section, updated Project Files, updated Running Locally), renamed all IBP_ environment variables to AGENTGATE_ prefix across src/http.ts, README.md, and .env.example
 31. ✅ Nonce store for replay protection: nonces table with composite primary key (nonce, identity_id), x-nonce header required on all POST routes, duplicate detection via INSERT OR IGNORE returning 409, AgentAdapter auto-generates UUID nonces, cleanExpiredNonces() purges nonces older than 5 minutes on 60-second interval, 3 new tests (21 total), README updated
 32. ✅ MCP Streamable HTTP transport: Express server on port 3001 serving all 5 MCP tools via StreamableHTTPServerTransport with session management, mcp-remote bridge for Claude Desktop, both servers start together and shut down together
+33. ✅ Remote deployment: DigitalOcean droplet (Ubuntu 24.04, NYC), Node.js 20 installed, repo cloned, servers bind to 0.0.0.0, dashboard accessible at public IP on port 3000, MCP endpoint on port 3001
 
 ---
 
@@ -253,13 +264,15 @@ All 21 tests should pass.
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
 - **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
 - **Ghost server processes** — old tsx processes can linger on port 3000; use npm run restart to avoid this
+- **Remote server is unsecured** — no firewall, no TLS, no auth on endpoints. Do not leave running unattended until hardened.
 
 ---
 
 ## Next Steps (in priority order)
 
-1. **Deploy to remote server** — run AgentGate on a VPS or cloud instance so Claude Desktop can connect to it over the internet (not just localhost)
-2. **Auth for MCP HTTP endpoint** — add bearer token or OAuth to the /mcp endpoint so only authorized clients can connect
+1. **Secure the remote server** — firewall (UFW), TLS (HTTPS), auth on MCP endpoint
+2. **Connect Claude Desktop to remote MCP endpoint** — update claude_desktop_config.json to point at http://174.138.63.42:3001/mcp
+3. **Production process manager** — pm2 or similar so the server stays running after you disconnect
 
 ---
 
