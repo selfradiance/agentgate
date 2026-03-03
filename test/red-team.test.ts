@@ -216,6 +216,67 @@ describe("Attack 1.1 — over-commit exposure beyond bond capacity", () => {
   });
 });
 
+describe("Attack 1.2 — rapid resolve-then-execute cycle", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("fully releases exposure on each resolve with no leak or double-release across 5 cycles", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+
+    // Note: resolveAction sets bond.status = 'released' on success, and assertBondCanBackAction
+    // rejects any bond that isn't 'active'. The current implementation is therefore one-action-
+    // per-bond. Each cycle uses a fresh bond to simulate the rapid execute→resolve→execute pattern.
+    for (let cycle = 0; cycle < 5; cycle++) {
+      const { bondId } = service.lockBond({
+        identityId,
+        amountCents: 1000,
+        currency: "USD",
+        ttlSeconds: 300,
+        reason: `attack-1.2-cycle-${cycle}`,
+      });
+
+      // Execute: declared 800 → effective ceil(800 × 1.2) = 960
+      const { actionId } = await service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.2",
+        exposure_cents: 800,
+      });
+
+      // Exposure must be reserved correctly before resolve
+      const afterExecute = handle.db
+        .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
+        .get(bondId) as { outstanding_exposure_cents: number };
+      expect(afterExecute.outstanding_exposure_cents).toBe(960);
+
+      // Resolve as success — exposure must be fully released, not partially or doubly
+      service.resolveAction(actionId, { outcome: "success" });
+
+      const afterResolve = handle.db
+        .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
+        .get(bondId) as { outstanding_exposure_cents: number };
+      expect(afterResolve.outstanding_exposure_cents).toBe(0);
+    }
+
+    // All 8 invariants must hold after all 5 cycles
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
