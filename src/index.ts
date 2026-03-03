@@ -2,6 +2,7 @@ import { createApp } from "./app";
 import { backupDatabase } from "./backup";
 import { registerDashboard } from "./dashboard";
 import { createLogger } from "./logger";
+import { startMcpHttpServer } from "./mcp/http-server";
 
 const SWEEP_INTERVAL_MS = 60_000;
 
@@ -32,6 +33,8 @@ async function main() {
     process.exit(1);
   }
 
+  const mcpHttpServer = startMcpHttpServer(3001);
+
   const sweepInterval = setInterval(() => {
     const result = app.sweepExpiredActions();
     logger.info(`sweeper: slashed ${result.slashedCount} expired actions`);
@@ -42,6 +45,7 @@ async function main() {
   const shutdown = async () => {
     clearInterval(sweepInterval);
     await app.close();
+    await new Promise<void>((resolve) => mcpHttpServer.close(() => resolve()));
     process.exit(0);
   };
 
