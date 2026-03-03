@@ -338,6 +338,70 @@ describe("Attack 1.3 — resolve an already-resolved action", () => {
   });
 });
 
+describe("Attack 1.4 — execute against a burned/slashed bond", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects a new execute against a bond that has been slashed", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.4",
+    });
+
+    const { actionId } = await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-1.4-first",
+      exposure_cents: 500,
+    });
+
+    // Resolve as malicious — bond status becomes 'slashed'
+    service.resolveAction(actionId, { outcome: "malicious" });
+
+    const afterSlash = handle.db
+      .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; slashed_cents: number };
+    expect(afterSlash.status).toBe("slashed");
+    expect(afterSlash.slashed_cents).toBeGreaterThan(0);
+
+    // Attempt a second execute against the now-slashed bond — must be rejected
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.4-second",
+        exposure_cents: 100,
+      })
+    ).rejects.toMatchObject({ code: "BOND_NOT_ACTIVE" });
+
+    // No new action should have been recorded for the second attempt
+    const openActions = handle.db
+      .prepare(`SELECT id FROM actions WHERE bond_id = ? AND status = 'open'`)
+      .all(bondId) as Array<{ id: string }>;
+    expect(openActions).toHaveLength(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
