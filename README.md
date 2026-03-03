@@ -275,7 +275,16 @@ AGENTGATE_REST_KEY=your-long-random-secret
 
 AgentGate can be deployed to a remote server (tested on DigitalOcean Ubuntu 24.04). Both the Fastify API (port 3000) and MCP HTTP server (port 3001) bind to `0.0.0.0`, making them accessible over the internet.
 
-> **Security status:** UFW firewall enabled (ports 22, 3000, 3001 only). MCP endpoint auth via `x-agentgate-key` is in place. Dashboard (port 3000) is still unauthenticated and TLS is still pending.
+> **Security status:** UFW firewall enabled (ports 22, 3000, 3001 only). Auth is in place on both ports (`x-agentgate-key` on MCP, `x-agentgate-key` + Basic Auth on REST/dashboard). TLS is still pending.
+
+The server is managed by **pm2**, which keeps it running after you disconnect from SSH and restarts it automatically on crash or reboot.
+
+```bash
+pm2 status               # check if agentgate is running
+pm2 logs agentgate       # tail live logs
+pm2 restart agentgate    # apply updates
+pm2 stop agentgate       # stop the server
+```
 
 ---
 

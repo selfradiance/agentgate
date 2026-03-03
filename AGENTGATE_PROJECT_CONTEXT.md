@@ -209,12 +209,15 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 - **Server IP:** 174.138.63.42
 - **Provider:** DigitalOcean, Ubuntu 24.04, $4/month droplet
 - **To connect:** ssh root@174.138.63.42
-- **To start:** cd agentgate && npm run dev
+- **To start:** cd agentgate && pm2 restart agentgate (or pm2 start npx --name agentgate -- tsx src/index.ts if not yet saved)
 - **Dashboard:** http://174.138.63.42:3000/dashboard
 - **MCP endpoint:** http://174.138.63.42:3001/mcp
 - Both servers bind to 0.0.0.0 for remote access
 - ✅ UFW firewall enabled — only ports 22 (SSH), 3000 (dashboard), 3001 (MCP) are open
-- ⚠️ NOT yet fully secured — no auth on MCP endpoint, no TLS
+- ✅ Auth in place on both ports (x-agentgate-key on MCP, x-agentgate-key + Basic Auth on REST/dashboard)
+- ⚠️ No TLS — traffic is unencrypted
+- **Process manager:** pm2 keeps the server running in the background, auto-restarts on crash, auto-starts on reboot
+- **Useful pm2 commands:** pm2 status, pm2 logs agentgate, pm2 restart agentgate, pm2 stop agentgate
 
 ### Run tests:
 npm run test
@@ -261,6 +264,7 @@ All 21 tests should pass.
 34. ✅ UFW firewall enabled on remote server — ports 22, 3000, 3001 only; all other inbound traffic blocked
 35. ✅ MCP endpoint authentication: static shared-secret header (x-agentgate-key) on MCP HTTP server, middleware in http-server.ts, env var AGENTGATE_MCP_KEY loaded via dotenv, 401 for unauthorized requests, warning logged when key not set
 36. ✅ REST API + dashboard authentication: shared-secret header (x-agentgate-key) on all POST routes, HTTP Basic Auth on /dashboard with browser login popup, env var AGENTGATE_REST_KEY, skips auth when key not set (local dev friendly), README updated
+37. ✅ pm2 process manager on remote server: AgentGate stays running after SSH disconnect, auto-restarts on crash, auto-starts on droplet reboot (pm2 startup + pm2 save)
 
 ---
 
@@ -276,7 +280,6 @@ All 21 tests should pass.
 ## Next Steps (in priority order)
 
 1. **TLS via Caddy or Nginx + Let's Encrypt** — HTTPS for both ports so traffic is encrypted
-2. **Process manager (pm2)** — so the server stays running after you disconnect from SSH
 
 ---
 ---
