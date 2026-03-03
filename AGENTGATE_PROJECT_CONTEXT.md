@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (AI workflow rules added; multi-model ready)
+**Last updated:** 2026-03-03 (Session 7)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -212,7 +212,8 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 - **Dashboard:** http://174.138.63.42:3000/dashboard
 - **MCP endpoint:** http://174.138.63.42:3001/mcp
 - Both servers bind to 0.0.0.0 for remote access
-- ⚠️ Server is NOT yet secured — no auth on endpoints, no firewall, no TLS
+- ✅ UFW firewall enabled — only ports 22 (SSH), 3000 (dashboard), 3001 (MCP) are open
+- ⚠️ NOT yet fully secured — no auth on MCP endpoint, no TLS
 
 ### Run tests:
 npm run test
@@ -256,6 +257,7 @@ All 21 tests should pass.
 31. ✅ Nonce store for replay protection: nonces table with composite primary key (nonce, identity_id), x-nonce header required on all POST routes, duplicate detection via INSERT OR IGNORE returning 409, AgentAdapter auto-generates UUID nonces, cleanExpiredNonces() purges nonces older than 5 minutes on 60-second interval, 3 new tests (21 total), README updated
 32. ✅ MCP Streamable HTTP transport: Express server on port 3001 serving all 5 MCP tools via StreamableHTTPServerTransport with session management, mcp-remote bridge for Claude Desktop, both servers start together and shut down together
 33. ✅ Remote deployment: DigitalOcean droplet (Ubuntu 24.04, NYC), Node.js 20 installed, repo cloned, servers bind to 0.0.0.0, dashboard accessible at public IP on port 3000, MCP endpoint on port 3001
+34. ✅ UFW firewall enabled on remote server — ports 22, 3000, 3001 only; all other inbound traffic blocked
 
 ---
 
@@ -270,7 +272,7 @@ All 21 tests should pass.
 
 ## Next Steps (in priority order)
 
-1. **Secure the remote server** — firewall (UFW), TLS (HTTPS), auth on MCP endpoint
+1. **Secure the remote server** — ✅ UFW firewall done, next: auth on MCP endpoint, then TLS (HTTPS)
 2. **Connect Claude Desktop to remote MCP endpoint** — update claude_desktop_config.json to point at http://174.138.63.42:3001/mcp
 3. **Production process manager** — pm2 or similar so the server stays running after you disconnect
 
