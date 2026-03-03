@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 9)
+**Last updated:** 2026-03-03 (Session 10)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -278,6 +278,9 @@ All 21 tests should pass.
 36. ✅ REST API + dashboard authentication: shared-secret header (x-agentgate-key) on all POST routes, HTTP Basic Auth on /dashboard with browser login popup, env var AGENTGATE_REST_KEY, skips auth when key not set (local dev friendly), README updated
 37. ✅ pm2 process manager on remote server: AgentGate stays running after SSH disconnect, auto-restarts on crash, auto-starts on droplet reboot (pm2 startup + pm2 save)
 38. ✅ TLS via Caddy reverse proxy: domain agentgate.run registered, Caddy installed on DigitalOcean server, auto-managed Let's Encrypt certificates for agentgate.run and mcp.agentgate.run, UFW updated to allow only ports 22/80/443 (3000/3001 no longer publicly accessible), Node servers now bind to 127.0.0.1
+39. ✅ GET /health endpoint: unauthenticated health check at /health returning JSON status and timestamp, for use by external uptime monitors
+40. ✅ UptimeRobot uptime monitoring: free external monitor checking https://agentgate.run/health every 5 minutes, emails on downtime
+41. ✅ Structured security event logging: all security-relevant events (auth_failed, duplicate_nonce, signature_failed, bond_slashed, outbound_blocked) now logged with clear event fields and context via the structured logger; logger.ts extended to accept optional metadata object
 
 ---
 
@@ -329,3 +332,4 @@ If one AI tool is unavailable, development should continue using another without
 - agent-identity*.json files contain private keys — the wildcard .gitignore pattern covers all of them; never commit any of these files
 - Use npm run restart (not just npm run dev) to avoid ghost server processes on port 3000
 - James also keeps ChatGPT updated with the latest markdown file as a backup collaborator
+- At the end of every session, always update both AGENTGATE_PROJECT_CONTEXT.md (add new milestones) and README.md (reflect any architectural or feature changes) before the final commit.

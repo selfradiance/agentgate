@@ -214,6 +214,16 @@ File location: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ---
 
+## Health Check
+
+```
+GET /health
+```
+
+Returns `200 OK` with `{ "status": "ok", "timestamp": "<ISO>" }`. No authentication required — designed for external uptime monitors (e.g. UptimeRobot). Monitored at https://agentgate.run/health every 5 minutes.
+
+---
+
 ## Dashboard
 
 AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (local) or https://agentgate.run/dashboard (remote). Server must be running. It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
@@ -281,6 +291,20 @@ The REST API (all POST routes on port 3000) and dashboard are protected by `AGEN
 ```
 AGENTGATE_REST_KEY=your-long-random-secret
 ```
+
+### Security Event Logging
+
+All security-relevant events are logged as structured JSON to stderr with an `event` field for easy filtering:
+
+| `event` | Trigger |
+|---|---|
+| `auth_failed` | Wrong or missing `x-agentgate-key` on REST or MCP |
+| `signature_failed` | Missing headers, stale timestamp, or bad Ed25519 signature |
+| `duplicate_nonce` | Same nonce reused by the same identity |
+| `bond_slashed` | Action resolved as malicious (via API or sweeper) |
+| `outbound_blocked` | `market.http` action blocked by allowlist or protocol check |
+
+Each entry includes relevant context: `identityId` (truncated), `endpoint`, `reason`, and `requestId` where available.
 
 ---
 
