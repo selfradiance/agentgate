@@ -127,7 +127,7 @@ export function startMcpHttpServer(port: number) {
     res.status(200).send("Session terminated");
   });
 
-  const httpServer = app.listen(port, "0.0.0.0", () => {
+  const httpServer = app.listen(port, "127.0.0.1", () => {
     process.stderr.write(
       `MCP HTTP server listening on port ${port}, endpoint: /mcp\n`
     );
