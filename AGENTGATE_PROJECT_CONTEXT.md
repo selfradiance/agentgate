@@ -219,7 +219,7 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 - **Domain:** agentgate.run (registered on Namecheap)
 - **Server IP:** 174.138.63.42
 - **Provider:** DigitalOcean, Ubuntu 24.04, $4/month droplet
-- **To connect:** ssh root@174.138.63.42
+- **To connect:** ssh root@174.138.63.42 (passwordless — Ed25519 SSH key configured)
 - **To start:** cd agentgate && pm2 restart agentgate
 - **Dashboard:** https://agentgate.run/dashboard
 - **MCP endpoint:** https://mcp.agentgate.run/mcp
@@ -281,6 +281,7 @@ All 21 tests should pass.
 39. ✅ GET /health endpoint: unauthenticated health check at /health returning JSON status and timestamp, for use by external uptime monitors
 40. ✅ UptimeRobot uptime monitoring: free external monitor checking https://agentgate.run/health every 5 minutes, emails on downtime
 41. ✅ Structured security event logging: all security-relevant events (auth_failed, duplicate_nonce, signature_failed, bond_slashed, outbound_blocked) now logged with clear event fields and context via the structured logger; logger.ts extended to accept optional metadata object
+42. ✅ SSH key authentication: Ed25519 SSH key set up on local Mac and copied to DigitalOcean server — passwordless deploys via ssh root@174.138.63.42
 
 ---
 

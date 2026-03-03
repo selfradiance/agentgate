@@ -318,6 +318,8 @@ AgentGate is deployed to a DigitalOcean droplet (Ubuntu 24.04) at [agentgate.run
 - **MCP endpoint:** https://mcp.agentgate.run/mcp
 - **Caddy config:** `/etc/caddy/Caddyfile` on the server — proxies agentgate.run → 127.0.0.1:3000 and mcp.agentgate.run → 127.0.0.1:3001
 
+SSH access uses an Ed25519 key — no password required for deploys (`ssh root@174.138.63.42`).
+
 The server is managed by **pm2**, which keeps it running after you disconnect from SSH and restarts it automatically on crash or reboot.
 
 ```bash
