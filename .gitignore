@@ -7,4 +7,3 @@ coverage/
 *.db-wal
 .DS_Store
 agent-identity*.json
-AGENTGATE_PROJECT_CONTEXT.md
