@@ -158,6 +158,64 @@ export function validateInvariants(db: Database.Database): void {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("Attack 1.1 — over-commit exposure beyond bond capacity", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects an action whose effective exposure would exceed the bond's remaining capacity", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.1",
+    });
+
+    // Action 1: declared 400 → effective ceil(400 × 1.2) = 480. Outstanding becomes 480, 520 remaining.
+    await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-1.1-first",
+      exposure_cents: 400,
+    });
+
+    // Action 2: declared 450 → effective ceil(450 × 1.2) = 540. Combined: 480 + 540 = 1020 > 1000.
+    // Must be rejected before any state change occurs.
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.1-second",
+        exposure_cents: 450,
+      })
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_BOND_CAPACITY" });
+
+    // Bond state must be unchanged by the rejected action — still 480 outstanding, not 1020.
+    const bond = handle.db
+      .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { outstanding_exposure_cents: number };
+    expect(bond.outstanding_exposure_cents).toBe(480);
+
+    // All 8 invariants must hold.
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
