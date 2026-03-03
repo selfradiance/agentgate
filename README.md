@@ -87,6 +87,7 @@ For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 - Ed25519 public key (raw 32-byte base64)
 - All state-changing endpoints require signed requests
 - Replay protection via timestamp validation
+- Replay protection via nonce store
 
 Signed message format:
 
@@ -222,6 +223,6 @@ npm run example:toy-agent
 * `src/mcp/` — MCP server exposing 5 tools for Claude Desktop integration
 * `src/agent-adapter.ts` — clean agent-facing interface that hides signing and HTTP details
 * `src/dashboard.ts` — real-time HTML dashboard
-* `test/` — test suite (18 tests)
+* `test/` — test suite (21 tests)
 * `examples/` — demo agents and adapter demo
 * `docs/` — threat model and design docs
