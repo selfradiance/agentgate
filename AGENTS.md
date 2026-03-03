@@ -32,7 +32,7 @@ For any meaningful change:
    - run typecheck/build (as applicable)
    - run demo script(s) / minimal tests
 3) Commit with a clear message.
-4) Push to GitHub.
+4) Push to GitHub immediately after committing. Do not leave commits unpushed unless explicitly told to hold off.
 5) Update README with:
    - what changed
    - how to verify
