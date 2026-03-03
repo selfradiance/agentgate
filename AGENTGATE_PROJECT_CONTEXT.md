@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 6 continued)
+**Last updated:** 2026-03-03 (AI workflow rules added; multi-model ready)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -275,6 +275,30 @@ All 21 tests should pass.
 3. **Production process manager** — pm2 or similar so the server stays running after you disconnect
 
 ---
+---
+
+## AI Workflow & Model Strategy (New)
+
+As of 2026-03-03, AgentGate includes in-repo AI workflow rules:
+
+- `AGENTS.md` (root) — model-agnostic working agreement
+- `.claude/rules/` — workflow, security, verification, and code-style constraints
+
+These files make the project tool-agnostic.
+
+AgentGate can now be developed using:
+- Claude Code
+- ChatGPT (Codex-style workflow)
+- Gemini
+- Any future LLM
+
+The rules enforce:
+- Small diffs
+- Mandatory verification before commit
+- Security-first posture (nonce, replay, auth)
+- Explicit README updates after architectural changes
+
+If one AI tool is unavailable, development should continue using another without changing process discipline.
 
 ## Important Notes for Future Claude Sessions
 
