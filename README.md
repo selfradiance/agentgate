@@ -231,11 +231,38 @@ npm run test
 
 ---
 
+## Security
+
+### MCP Endpoint Authentication
+
+The MCP HTTP endpoint (port 3001) is protected by a shared-secret header.
+
+- Set `AGENTGATE_MCP_KEY` in your `.env` file (loaded automatically via dotenv on startup)
+- If the key is **not set**, a warning is logged at startup and all requests are allowed through (suitable for local dev)
+- If the key **is set**, any request to `/mcp` without a matching `x-agentgate-key` header receives a `401 UNAUTHORIZED` response
+
+Example request with the key:
+
+```bash
+curl -H "x-agentgate-key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '...' \
+  http://HOST:3001/mcp
+```
+
+`.env` entry:
+
+```
+AGENTGATE_MCP_KEY=your-long-random-secret
+```
+
+---
+
 ## Remote Deployment
 
 AgentGate can be deployed to a remote server (tested on DigitalOcean Ubuntu 24.04). Both the Fastify API (port 3000) and MCP HTTP server (port 3001) bind to `0.0.0.0`, making them accessible over the internet.
 
-> **Security status:** UFW firewall is enabled — only ports 22 (SSH), 3000 (API/dashboard), and 3001 (MCP) are open. Auth on the MCP endpoint and TLS are still pending. Do not leave a public instance running unattended until fully hardened.
+> **Security status:** UFW firewall enabled (ports 22, 3000, 3001 only). MCP endpoint auth via `x-agentgate-key` is in place. Dashboard (port 3000) is still unauthenticated and TLS is still pending.
 
 ---
 

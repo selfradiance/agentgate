@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 7)
+**Last updated:** 2026-03-03 (Session 8)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -25,6 +25,7 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 - **Testing:** Vitest
 - **Runtime:** Node.js 20+, tsx for TypeScript execution
 - **MCP SDK:** @modelcontextprotocol/sdk
+- **Config:** dotenv (loads .env on startup)
 - **Coding tool:** Claude Code
 
 ---
@@ -258,6 +259,7 @@ All 21 tests should pass.
 32. ✅ MCP Streamable HTTP transport: Express server on port 3001 serving all 5 MCP tools via StreamableHTTPServerTransport with session management, mcp-remote bridge for Claude Desktop, both servers start together and shut down together
 33. ✅ Remote deployment: DigitalOcean droplet (Ubuntu 24.04, NYC), Node.js 20 installed, repo cloned, servers bind to 0.0.0.0, dashboard accessible at public IP on port 3000, MCP endpoint on port 3001
 34. ✅ UFW firewall enabled on remote server — ports 22, 3000, 3001 only; all other inbound traffic blocked
+35. ✅ MCP endpoint authentication: static shared-secret header (x-agentgate-key) on MCP HTTP server, middleware in http-server.ts, env var AGENTGATE_MCP_KEY loaded via dotenv, 401 for unauthorized requests, warning logged when key not set
 
 ---
 
@@ -266,15 +268,15 @@ All 21 tests should pass.
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
 - **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
 - **Ghost server processes** — old tsx processes can linger on port 3000; use npm run restart to avoid this
-- **Remote server is unsecured** — no firewall, no TLS, no auth on endpoints. Do not leave running unattended until hardened.
+- **Dashboard unprotected** — port 3000 (REST API and dashboard) has no auth. MCP endpoint (port 3001) now requires x-agentgate-key, but the dashboard is still open. TLS is also still needed.
 
 ---
 
 ## Next Steps (in priority order)
 
-1. **Secure the remote server** — ✅ UFW firewall done, next: auth on MCP endpoint, then TLS (HTTPS)
-2. **Connect Claude Desktop to remote MCP endpoint** — update claude_desktop_config.json to point at http://174.138.63.42:3001/mcp
-3. **Production process manager** — pm2 or similar so the server stays running after you disconnect
+1. **Dashboard auth on port 3000** — add authentication to the REST API and dashboard endpoint
+2. **TLS via Caddy or Nginx + Let's Encrypt** — HTTPS for both ports so traffic is encrypted
+3. **Process manager (pm2)** — so the server stays running after you disconnect from SSH
 
 ---
 ---
