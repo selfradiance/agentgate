@@ -242,7 +242,23 @@ function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unk
 }
 
 export function registerDashboard(app: AppInstance) {
-  app.get("/dashboard", async (_request, reply) => {
+  app.get("/dashboard", {
+    preHandler: async (request, reply) => {
+      const secret = process.env.AGENTGATE_REST_KEY;
+      if (!secret) return;
+      const auth = request.headers.authorization;
+      if (!auth || !auth.startsWith("Basic ")) {
+        reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
+        return;
+      }
+      const decoded = Buffer.from(auth.slice(6), "base64").toString("utf8");
+      const colonIndex = decoded.indexOf(":");
+      const password = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : "";
+      if (password !== secret) {
+        reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
+      }
+    }
+  }, async (_request, reply) => {
     const data = app.getDashboardData();
     reply.type("text/html").send(buildHtml(data));
   });

@@ -78,6 +78,20 @@ export function createApp(options: AppOptions = {}): AppInstance {
   const requestStartTimes = new WeakMap<FastifyRequest, number>();
   const app = Fastify({ logger: false, genReqId: () => generateRequestId() });
 
+  if (!process.env.AGENTGATE_REST_KEY) {
+    createLogger().warn("AGENTGATE_REST_KEY is not set — REST API auth is disabled");
+  }
+
+  // Require x-agentgate-key on all POST routes when AGENTGATE_REST_KEY is configured
+  app.addHook("preHandler", async (request, reply) => {
+    const secret = process.env.AGENTGATE_REST_KEY;
+    if (!secret || request.method !== "POST") return;
+    const provided = getHeaderValue(request.headers["x-agentgate-key"]);
+    if (!provided || provided !== secret) {
+      reply.status(401).send({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
+    }
+  });
+
   app.addHook("onClose", async () => {
     database.close();
   });

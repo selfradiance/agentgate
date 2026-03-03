@@ -260,6 +260,7 @@ All 21 tests should pass.
 33. ✅ Remote deployment: DigitalOcean droplet (Ubuntu 24.04, NYC), Node.js 20 installed, repo cloned, servers bind to 0.0.0.0, dashboard accessible at public IP on port 3000, MCP endpoint on port 3001
 34. ✅ UFW firewall enabled on remote server — ports 22, 3000, 3001 only; all other inbound traffic blocked
 35. ✅ MCP endpoint authentication: static shared-secret header (x-agentgate-key) on MCP HTTP server, middleware in http-server.ts, env var AGENTGATE_MCP_KEY loaded via dotenv, 401 for unauthorized requests, warning logged when key not set
+36. ✅ REST API + dashboard authentication: shared-secret header (x-agentgate-key) on all POST routes, HTTP Basic Auth on /dashboard with browser login popup, env var AGENTGATE_REST_KEY, skips auth when key not set (local dev friendly), README updated
 
 ---
 
@@ -268,15 +269,14 @@ All 21 tests should pass.
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
 - **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
 - **Ghost server processes** — old tsx processes can linger on port 3000; use npm run restart to avoid this
-- **Dashboard unprotected** — port 3000 (REST API and dashboard) has no auth. MCP endpoint (port 3001) now requires x-agentgate-key, but the dashboard is still open. TLS is also still needed.
+- **No TLS** — both ports (3000 and 3001) are HTTP only. Auth is now in place on both ports, but traffic is unencrypted.
 
 ---
 
 ## Next Steps (in priority order)
 
-1. **Dashboard auth on port 3000** — add authentication to the REST API and dashboard endpoint
-2. **TLS via Caddy or Nginx + Let's Encrypt** — HTTPS for both ports so traffic is encrypted
-3. **Process manager (pm2)** — so the server stays running after you disconnect from SSH
+1. **TLS via Caddy or Nginx + Let's Encrypt** — HTTPS for both ports so traffic is encrypted
+2. **Process manager (pm2)** — so the server stays running after you disconnect from SSH
 
 ---
 ---

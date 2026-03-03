@@ -256,6 +256,19 @@ curl -H "x-agentgate-key: YOUR_KEY" \
 AGENTGATE_MCP_KEY=your-long-random-secret
 ```
 
+### REST API & Dashboard Authentication
+
+The REST API (all POST routes on port 3000) and dashboard are protected by `AGENTGATE_REST_KEY`.
+
+- Set `AGENTGATE_REST_KEY` in your `.env` file
+- If not set, a warning is logged at startup and all requests are allowed through (local dev)
+- **POST routes:** require an `x-agentgate-key` header matching the key; returns `401 UNAUTHORIZED` if missing or wrong
+- **Dashboard (`/dashboard`):** protected by HTTP Basic Auth — username `admin`, password is the key value; the browser will show a login popup automatically
+
+```
+AGENTGATE_REST_KEY=your-long-random-secret
+```
+
 ---
 
 ## Remote Deployment
