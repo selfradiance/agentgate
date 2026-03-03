@@ -1,9 +1,9 @@
 // src/http.ts
-const DEFAULT_TIMEOUT_MS = Number(process.env.IBP_HTTP_TIMEOUT_MS || 2500);
-const DEFAULT_MAX_RESPONSE_BYTES = Number(process.env.IBP_HTTP_MAX_RESPONSE_BYTES || 8192);
+const DEFAULT_TIMEOUT_MS = Number(process.env.AGENTGATE_HTTP_TIMEOUT_MS || 2500);
+const DEFAULT_MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_HTTP_MAX_RESPONSE_BYTES || 8192);
 // Comma-separated list, optional (e.g. "localhost,127.0.0.1")
 // If not provided, we default to localhost-only.
-const ALLOWLIST_ENV = (process.env.IBP_HTTP_ALLOWLIST || "").trim();
+const ALLOWLIST_ENV = (process.env.AGENTGATE_HTTP_ALLOWLIST || "").trim();
 
 function buildAllowlist(): Set<string> {
   if (!ALLOWLIST_ENV) {
@@ -56,7 +56,7 @@ export async function postJson(url: string, body: unknown) {
       // Enforce max payload size (bytes) before sending
       body: (() => {
         const json = JSON.stringify(body);
-        const maxBytes = Number(process.env.IBP_HTTP_MAX_BODY_BYTES || 4096);
+        const maxBytes = Number(process.env.AGENTGATE_HTTP_MAX_BODY_BYTES || 4096);
         const bytes = Buffer.byteLength(json, "utf8");
         if (bytes > maxBytes) {
           throw new Error(`Request body too large: ${bytes} bytes (max ${maxBytes})`);

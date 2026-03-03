@@ -16,20 +16,6 @@ AgentGate sits as a deterministic choke point between autonomous agents and exte
 
 ---
 
-## Development Workflow Rule
-
-After any major architectural milestone (new layer added, schema change, security rail, MCP change, adapter change):
-
-1. Run full typecheck and demo verification
-2. Commit with a clear milestone message
-3. Push to GitHub
-4. Update this README with:
-   - What changed
-   - Current system architecture state
-   - Next planned step
-
----
-
 ## Quick Integration
 
 AgentGate works with any agent that can make HTTP requests. The flow is four steps: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
@@ -181,10 +167,16 @@ Multiple actions per bond are supported.
 
 Environment variables:
 
-- IBP_HTTP_ALLOWLIST
-- IBP_HTTP_TIMEOUT_MS
-- IBP_HTTP_MAX_BODY_BYTES
-- IBP_HTTP_MAX_RESPONSE_BYTES
+- AGENTGATE_HTTP_ALLOWLIST
+- AGENTGATE_HTTP_TIMEOUT_MS
+- AGENTGATE_HTTP_MAX_BODY_BYTES
+- AGENTGATE_HTTP_MAX_RESPONSE_BYTES
+
+---
+
+## Dashboard
+
+AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (server must be running). It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
 
 ---
 
@@ -192,13 +184,23 @@ Environment variables:
 
 Install:
 
+```
 npm install
+```
 
 Start server:
 
-npm run dev
+```
+npm run restart
+```
 
-Default address: 127.0.0.1:3000
+This kills any old server process on port 3000 and starts fresh. Server runs at http://127.0.0.1:3000. Dashboard at http://127.0.0.1:3000/dashboard.
+
+To run tests:
+
+```
+npm run test
+```
 
 ---
 
@@ -216,7 +218,10 @@ npm run example:toy-agent
 
 ## Project Files
 
-* src/ — core server logic
-* test/ — test suite (16 tests)
-* examples/ — demo agents and mock exchange
-* docs/ — threat model and design docs
+* `src/` — core server logic (Fastify API, service layer, database, signing, logging)
+* `src/mcp/` — MCP server exposing 5 tools for Claude Desktop integration
+* `src/agent-adapter.ts` — clean agent-facing interface that hides signing and HTTP details
+* `src/dashboard.ts` — real-time HTML dashboard
+* `test/` — test suite (18 tests)
+* `examples/` — demo agents and adapter demo
+* `docs/` — threat model and design docs
