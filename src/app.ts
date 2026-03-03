@@ -188,6 +188,10 @@ export function createApp(options: AppOptions = {}): AppInstance {
     });
   });
 
+  app.get("/health", async (_request, reply) => {
+    reply.send({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.get("/v1/identities/:id", async (request, reply) => {
     const params = request.params as { id?: string };
     if (!params.id) {
