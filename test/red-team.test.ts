@@ -98,20 +98,20 @@ export function validateInvariants(db: Database.Database): void {
     );
   }
 
-  // 6. Every action with status 'malicious' must have its bond status set to 'slashed'
-  //    (the settlement sets bond.status = 'slashed' and outstanding_exposure_cents = 0)
+  // 6. Every action with status 'malicious' must have its bond status = 'slashed'
+  //    AND the bond's slashed_cents must be > 0 (the slash was persisted)
   const inv6 = db
     .prepare(
-      `SELECT a.id AS action_id, b.id AS bond_id, b.status AS bond_status
+      `SELECT a.id AS action_id, b.id AS bond_id, b.status AS bond_status, b.slashed_cents
        FROM actions a
        JOIN bonds b ON a.bond_id = b.id
        WHERE a.status = 'malicious'
-         AND b.status != 'slashed'`
+         AND (b.status != 'slashed' OR b.slashed_cents <= 0)`
     )
-    .all() as Array<{ action_id: string; bond_id: string; bond_status: string }>;
+    .all() as Array<{ action_id: string; bond_id: string; bond_status: string; slashed_cents: number }>;
   if (inv6.length > 0) {
     throw new Error(
-      `Invariant 6 violated — malicious actions whose bond is not slashed: ${JSON.stringify(inv6)}`
+      `Invariant 6 violated — malicious actions whose bond is not slashed or has zero slashed_cents: ${JSON.stringify(inv6)}`
     );
   }
 
