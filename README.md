@@ -175,6 +175,32 @@ Environment variables:
 
 ---
 
+## MCP Transport
+
+AgentGate exposes its 5 tools to Claude Desktop over two transports:
+
+- **Streamable HTTP** (recommended) — Express server on port 3001 at `/mcp`. Claude Desktop connects via `mcp-remote`. Sessions are managed server-side.
+- **stdio** — launches `src/mcp/server.ts` as a subprocess directly from Claude Desktop.
+
+Both transports require the AgentGate HTTP server (`npm run restart`) to be running.
+
+### Claude Desktop config (HTTP transport via mcp-remote)
+
+```json
+{
+  "mcpServers": {
+    "agentgate": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:3001/mcp"]
+    }
+  }
+}
+```
+
+File location: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+---
+
 ## Dashboard
 
 AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (server must be running). It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
