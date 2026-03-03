@@ -33,12 +33,16 @@ function getNonce(nonceHeader: string | string[] | undefined): string {
   return nonce.trim();
 }
 
-function recordNonce(db: Database.Database, identityId: string, nonce: string): void {
+function recordNonce(db: Database.Database, identityId: string, nonce: string, requestId?: string): void {
   const result = db
     .prepare(`INSERT OR IGNORE INTO nonces (nonce, identity_id, created_at) VALUES (?, ?, ?)`)
     .run(nonce, identityId, new Date().toISOString());
 
   if (result.changes === 0) {
+    createLogger(requestId).warn("duplicate nonce rejected", {
+      event: "duplicate_nonce",
+      identityId: identityId.slice(0, 16),
+    });
     throw new AppError(409, "DUPLICATE_NONCE", "Nonce already used");
   }
 }
@@ -47,20 +51,39 @@ function assertSignedRequest(
   publicKey: string,
   timestampHeader: string | string[] | undefined,
   signatureHeader: string | string[] | undefined,
-  body: unknown
+  body: unknown,
+  context?: { identityId?: string; requestId?: string; endpoint?: string }
 ) {
   const timestamp = getHeaderValue(timestampHeader);
   const signature = getHeaderValue(signatureHeader);
 
   if (!timestamp || !signature) {
+    createLogger(context?.requestId).warn("signature verification failed", {
+      event: "signature_failed",
+      reason: "missing_headers",
+      identityId: context?.identityId?.slice(0, 16),
+      endpoint: context?.endpoint,
+    });
     throw new AppError(401, "INVALID_SIGNATURE", "Signature headers are required");
   }
 
   if (!isFreshTimestamp(timestamp)) {
+    createLogger(context?.requestId).warn("signature verification failed", {
+      event: "signature_failed",
+      reason: "stale_timestamp",
+      identityId: context?.identityId?.slice(0, 16),
+      endpoint: context?.endpoint,
+    });
     throw new AppError(401, "INVALID_SIGNATURE", "Signature timestamp is invalid");
   }
 
   if (!verifyRequestSignature(publicKey, timestamp, body, signature)) {
+    createLogger(context?.requestId).warn("signature verification failed", {
+      event: "signature_failed",
+      reason: "invalid_signature",
+      identityId: context?.identityId?.slice(0, 16),
+      endpoint: context?.endpoint,
+    });
     throw new AppError(401, "INVALID_SIGNATURE", "Signature is invalid");
   }
 }
@@ -88,6 +111,11 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (!secret || request.method !== "POST") return;
     const provided = getHeaderValue(request.headers["x-agentgate-key"]);
     if (!provided || provided !== secret) {
+      createLogger(request.id).warn("REST auth failed", {
+        event: "auth_failed",
+        endpoint: request.url,
+        reason: provided ? "wrong_key" : "missing_key",
+      });
       reply.status(401).send({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
     }
   });
@@ -154,9 +182,10 @@ export function createApp(options: AppOptions = {}): AppInstance {
       service.getIdentityPublicKey(body.identityId),
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
-      rawBody
+      rawBody,
+      { identityId: body.identityId, requestId: request.id, endpoint: request.url }
     );
-    recordNonce(database.db, body.identityId, nonce);
+    recordNonce(database.db, body.identityId, nonce, request.id);
     reply.status(201).send(await service.executeAction(body));
   });
 
@@ -173,9 +202,10 @@ export function createApp(options: AppOptions = {}): AppInstance {
       service.getActionIdentityPublicKey(params.actionId),
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
-      rawBody
+      rawBody,
+      { identityId, requestId: request.id, endpoint: request.url }
     );
-    recordNonce(database.db, identityId, nonce);
+    recordNonce(database.db, identityId, nonce, request.id);
     reply.send(service.resolveAction(params.actionId, body));
   });
 

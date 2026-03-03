@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { AppError } from "./errors";
+import { createLogger } from "./logger";
 import { scoreIdentity } from "./reputation";
 import type {
   ActionRecord,
@@ -217,6 +218,16 @@ export class IbpService {
     });
 
     tx();
+
+    if (input.outcome === "malicious") {
+      createLogger().warn("bond slashed", {
+        event: "bond_slashed",
+        actionId: actionId.slice(0, 20),
+        identityId: action.identity_id.slice(0, 16),
+        bondId: action.bond_id.slice(0, 20),
+        slashedCents: settlement.slashedCents,
+      });
+    }
 
     return {
       actionId,

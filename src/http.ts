@@ -1,4 +1,5 @@
 // src/http.ts
+import { createLogger } from "./logger";
 const DEFAULT_TIMEOUT_MS = Number(process.env.AGENTGATE_HTTP_TIMEOUT_MS || 2500);
 const DEFAULT_MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_HTTP_MAX_RESPONSE_BYTES || 8192);
 // Comma-separated list, optional (e.g. "localhost,127.0.0.1")
@@ -22,11 +23,22 @@ function assertUrlAllowed(rawUrl: string) {
   try {
     u = new URL(rawUrl);
   } catch {
+    createLogger().warn("outbound HTTP blocked", {
+      event: "outbound_blocked",
+      reason: "invalid_url",
+      url: rawUrl,
+    });
     throw new Error(`Invalid URL: ${rawUrl}`);
   }
 
   // Require http/https only
   if (u.protocol !== "http:" && u.protocol !== "https:") {
+    createLogger().warn("outbound HTTP blocked", {
+      event: "outbound_blocked",
+      reason: "disallowed_protocol",
+      protocol: u.protocol,
+      url: rawUrl,
+    });
     throw new Error(`Disallowed protocol: ${u.protocol}`);
   }
 
@@ -34,6 +46,11 @@ function assertUrlAllowed(rawUrl: string) {
   const host = u.hostname;
 
   if (!allowlist.has(host)) {
+    createLogger().warn("outbound HTTP blocked", {
+      event: "outbound_blocked",
+      reason: "host_not_allowlisted",
+      host,
+    });
     throw new Error(
       `Destination host not allowlisted: ${host}. Allowlist: ${Array.from(allowlist).join(", ")}`
     );

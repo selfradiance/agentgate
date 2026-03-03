@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { AgentAdapter } from "../agent-adapter.js";
 import { createMcpServer } from "./server.js";
+import { createLogger } from "../logger.js";
 
 const transports = new Map<string, StreamableHTTPServerTransport>();
 
@@ -17,6 +18,11 @@ function mcpAuthMiddleware(req: express.Request, res: express.Response, next: ex
     ? req.headers["x-agentgate-key"][0]
     : req.headers["x-agentgate-key"];
   if (!provided || provided !== secret) {
+    createLogger().warn("MCP auth failed", {
+      event: "auth_failed",
+      endpoint: req.path,
+      reason: provided ? "wrong_key" : "missing_key",
+    });
     res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
     return;
   }
