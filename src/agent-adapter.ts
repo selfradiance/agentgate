@@ -1,6 +1,6 @@
 // src/agent-adapter.ts
 
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { signRequestSignature } from "./signing";
@@ -167,7 +167,8 @@ async function registerIdentity(baseUrl: string, publicKey: string, agentName?: 
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      "x-nonce": randomUUID()
     },
     body: JSON.stringify({ publicKey, ...(agentName ? { agentName } : {}) })
   });
@@ -265,7 +266,8 @@ export class AgentAdapter {
       headers: {
         "content-type": "application/json",
         "x-agentgate-timestamp": timestamp,
-        "x-agentgate-signature": signatureBase64
+        "x-agentgate-signature": signatureBase64,
+        "x-nonce": randomUUID()
       },
       body: JSON.stringify(body)
     });

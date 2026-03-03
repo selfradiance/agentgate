@@ -1,6 +1,7 @@
 import {
   createHash,
   generateKeyPairSync,
+  randomUUID,
   sign,
   type KeyObject
 } from "node:crypto";
@@ -42,6 +43,7 @@ async function createIdentity(app: ReturnType<typeof createApp>) {
   const response = await app.inject({
     method: "POST",
     url: "/v1/identities",
+    headers: { "x-nonce": randomUUID() },
     payload: { publicKey: signer.publicKey }
   });
 
@@ -55,11 +57,13 @@ async function lockBond(
   app: ReturnType<typeof createApp>,
   identityId: string,
   amountCents: number,
-  reason: string
+  reason: string,
+  nonce = randomUUID()
 ) {
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
+    headers: { "x-nonce": nonce },
     payload: {
       identityId,
       amountCents,
@@ -73,13 +77,14 @@ async function lockBond(
 async function executeSignedAction(
   app: ReturnType<typeof createApp>,
   signer: { privateKey: KeyObject },
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  nonce = randomUUID()
 ) {
   return app.inject({
     method: "POST",
     url: "/v1/actions/execute",
     payload: body,
-    headers: signHeaders(signer.privateKey, body)
+    headers: { ...signHeaders(signer.privateKey, body), "x-nonce": nonce }
   });
 }
 
@@ -169,7 +174,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: signHeaders(signer.privateKey, resolveBody)
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
     });
 
     const resolvedStatsResponse = await app.inject({
@@ -209,7 +214,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: signHeaders(signer.privateKey, resolveBody)
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
     });
 
     expect(resolveResponse.statusCode).toBe(200);
@@ -264,7 +269,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: signHeaders(signer.privateKey, resolveBody)
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(200);
@@ -299,7 +304,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: signHeaders(signer.privateKey, resolveBody)
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(200);
@@ -384,7 +389,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: signHeaders(wrongSigner.privateKey, actionBody)
+      headers: { ...signHeaders(wrongSigner.privateKey, actionBody), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(401);
@@ -412,7 +417,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody, `${Date.now() - 61_000}`)
+      headers: { ...signHeaders(signer.privateKey, actionBody, `${Date.now() - 61_000}`), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(401);
@@ -550,5 +555,74 @@ describe("IBP state transitions", () => {
       error: "MIN_BOND_REQUIRED",
       message: "Minimum bond is 5000 cents for this identity's recent action volume"
     });
+  });
+});
+
+describe("nonce replay protection", () => {
+  it("rejects duplicate nonce for same identity", async () => {
+    const app = await buildApp();
+    const { identityId } = await createIdentity(app);
+    const nonce = "replay-nonce-duplicate";
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload: { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "first" }
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload: { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "second" }
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error).toBe("DUPLICATE_NONCE");
+  });
+
+  it("allows different nonce for same identity", async () => {
+    const app = await buildApp();
+    const { identityId } = await createIdentity(app);
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": "aaa" },
+      payload: { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "first" }
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": "bbb" },
+      payload: { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "second" }
+    });
+    expect(second.statusCode).toBe(201);
+  });
+
+  it("allows same nonce from different identities", async () => {
+    const app = await buildApp();
+    const { identityId: identityId1 } = await createIdentity(app);
+    const { identityId: identityId2 } = await createIdentity(app);
+    const nonce = "shared-nonce";
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload: { identityId: identityId1, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "identity1" }
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload: { identityId: identityId2, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "identity2" }
+    });
+    expect(second.statusCode).toBe(201);
   });
 });

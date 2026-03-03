@@ -65,6 +65,14 @@ export function createDatabase(filename: string): DatabaseHandle {
 
     CREATE INDEX IF NOT EXISTS action_execute_buckets_identity_requested_at_idx
       ON action_execute_buckets(identity_id, requested_at);
+
+    CREATE TABLE IF NOT EXISTS nonces (
+      nonce TEXT NOT NULL,
+      identity_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (nonce, identity_id),
+      FOREIGN KEY(identity_id) REFERENCES identities(id)
+    );
   `);
 
   // Migration: add agent_name column to existing databases that predate it

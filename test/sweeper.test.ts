@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type AppInstance, createApp } from "../src/app";
 
@@ -36,6 +36,7 @@ async function createIdentity(app: AppInstance) {
   const response = await app.inject({
     method: "POST",
     url: "/v1/identities",
+    headers: { "x-nonce": randomUUID() },
     payload: { publicKey: signer.publicKey }
   });
   return { signer, identityId: response.json().identityId as string };
@@ -45,6 +46,7 @@ async function lockBond(app: AppInstance, identityId: string, amountCents: numbe
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
+    headers: { "x-nonce": randomUUID() },
     payload: { identityId, amountCents, currency: "USD", ttlSeconds, reason }
   })).json().bondId as string;
 }
@@ -71,7 +73,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
+      headers: { ...signHeaders(signer.privateKey, actionBody), "x-nonce": randomUUID() }
     });
     const actionId = executeResponse.json().actionId as string;
 
@@ -95,7 +97,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: signHeaders(signer.privateKey, resolveBody)
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
     });
     expect(resolveResponse.statusCode).toBe(409);
     expect(resolveResponse.json().error).toBe("ACTION_ALREADY_RESOLVED");

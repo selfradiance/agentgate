@@ -35,6 +35,8 @@ async function main() {
   const sweepInterval = setInterval(() => {
     const result = app.sweepExpiredActions();
     logger.info(`sweeper: slashed ${result.slashedCount} expired actions`);
+    const nonces = app.cleanExpiredNonces();
+    logger.info(`nonce-cleanup: purged ${nonces.purgedCount} expired nonces`);
   }, SWEEP_INTERVAL_MS);
 
   const shutdown = async () => {

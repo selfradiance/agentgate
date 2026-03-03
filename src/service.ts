@@ -303,6 +303,14 @@ export class IbpService {
     return { slashedCount };
   }
 
+  cleanExpiredNonces(): { purgedCount: number } {
+    const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+    const result = this.db
+      .prepare(`DELETE FROM nonces WHERE created_at <= @cutoff`)
+      .run({ cutoff });
+    return { purgedCount: result.changes };
+  }
+
   getDashboardData() {
     const identities = this.db.prepare(`SELECT * FROM identities`).all();
     const bonds = this.db.prepare(`SELECT * FROM bonds`).all();
@@ -312,6 +320,10 @@ export class IbpService {
 
   getIdentityPublicKey(identityId: string) {
     return this.getIdentityOrThrow(identityId).public_key;
+  }
+
+  getActionIdentityId(actionId: string) {
+    return this.getActionOrThrow(actionId).identity_id;
   }
 
   getActionIdentityPublicKey(actionId: string) {
