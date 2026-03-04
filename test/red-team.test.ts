@@ -1055,6 +1055,77 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
   });
 });
 
+describe("Attack 4.1 — 50 parallel execute requests", () => {
+  const apps: AppInstance[] = [];
+
+  afterEach(async () => {
+    while (apps.length > 0) {
+      await apps.pop()?.close();
+    }
+  });
+
+  async function buildApp(): Promise<AppInstance> {
+    const app = createApp({ dbPath: ":memory:" });
+    apps.push(app);
+    await app.ready();
+    return app;
+  }
+
+  it("allows at most 41 of 50 concurrent executes and keeps outstanding_exposure_cents within bond capacity", async () => {
+    const app = await buildApp();
+    const { privateKey, publicKey } = createSigner();
+
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { "x-nonce": randomUUID() },
+      payload: { publicKey }
+    });
+    const { identityId } = identityResponse.json() as { identityId: string };
+
+    const bondResponse = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 10_000, currency: "USD", ttlSeconds: 300, reason: "attack-4.1" }
+    });
+    const { bondId } = bondResponse.json() as { bondId: string };
+
+    // 50 simultaneous execute requests, each declaring 200 cents.
+    // Effective per request: ceil(200 × 1.2) = 240 cents.
+    // Capacity: 41 × 240 = 9840 ≤ 10000 fits; 42 × 240 = 10080 exceeds.
+    // Note: the rate limit (10 per 60 s) is the practical binding constraint —
+    // it kicks in before the capacity limit. Either way successCount ≤ 41,
+    // and the core assertion is that outstanding_exposure_cents never exceeds
+    // amount_cents (invariant 3).
+    const requests = Array.from({ length: 50 }, () => {
+      const actionBody = {
+        identityId,
+        bondId,
+        actionType: "attack-4.1",
+        exposure_cents: 200,
+      };
+      return app.inject({
+        method: "POST",
+        url: "/v1/actions/execute",
+        payload: actionBody,
+        headers: { ...signHeaders(privateKey, actionBody), "x-nonce": randomUUID() },
+      });
+    });
+
+    const responses = await Promise.all(requests);
+
+    const successCount = responses.filter((r) => r.statusCode === 201).length;
+    const failCount   = responses.filter((r) => r.statusCode !== 201).length;
+
+    expect(successCount).toBeLessThanOrEqual(41);
+    expect(successCount + failCount).toBe(50);
+
+    // The critical invariant: exposure must never exceed bond capacity
+    validateInvariants(app.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
