@@ -293,6 +293,26 @@ The REST API (all POST routes on port 3000) and dashboard are protected by `AGEN
 AGENTGATE_REST_KEY=your-long-random-secret
 ```
 
+### Identity Governance
+
+Operators can ban and unban identities via the admin API. Banned identities receive `403 IDENTITY_BANNED` on all `lockBond` and `executeAction` calls.
+
+```bash
+# Ban an identity
+curl -s http://127.0.0.1:3000/admin/ban-identity \
+  -H 'content-type: application/json' \
+  -H 'x-agentgate-key: YOUR_KEY' \
+  -d '{ "publicKey": "<base64-encoded Ed25519 public key>" }'
+
+# Unban an identity
+curl -s http://127.0.0.1:3000/admin/unban-identity \
+  -H 'content-type: application/json' \
+  -H 'x-agentgate-key: YOUR_KEY' \
+  -d '{ "publicKey": "<base64-encoded Ed25519 public key>" }'
+```
+
+**Auto-ban:** an identity is automatically banned after 3 malicious action resolutions. The trigger logs an `identity_auto_banned` security event.
+
 ### Security Event Logging
 
 All security-relevant events are logged as structured JSON to stderr with an `event` field for easy filtering:
@@ -303,6 +323,7 @@ All security-relevant events are logged as structured JSON to stderr with an `ev
 | `signature_failed` | Missing headers, stale timestamp, or bad Ed25519 signature |
 | `duplicate_nonce` | Same nonce reused by the same identity |
 | `bond_slashed` | Action resolved as malicious (via API or sweeper) |
+| `identity_auto_banned` | Identity automatically banned after 3 malicious resolutions |
 | `outbound_blocked` | `market.http` action blocked by allowlist or protocol check |
 
 Each entry includes relevant context: `identityId` (truncated), `endpoint`, `reason`, and `requestId` where available.

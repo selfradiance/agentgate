@@ -6,6 +6,7 @@ export interface IdentityRecord {
   id: string;
   public_key: string;
   agent_name: string | null;
+  status: 'active' | 'banned';
   created_at: string;
 }
 

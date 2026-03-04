@@ -11,6 +11,7 @@ const STATUS_COLORS: Record<string, string> = {
   slashed:   "background:#6a2d2d",
   malicious: "background:#6a2d2d",
   burned:    "background:#6a2d2d",
+  banned:    "background:#6a2d2d",
   open:      "background:#6a5f2d",
   occupied:  "background:#6a5f2d",
 };
@@ -114,9 +115,12 @@ function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; a
     const scoreColor = score > 0 ? "background:#2d6a4f" : score < 0 ? "background:#6a2d2d" : "background:#3a3a3a";
     const idDisplay = truncateId(identity.id);
     const pkDisplay = identity.public_key.slice(0, 12) + "…";
+    const bannedTag = identity.status === "banned"
+      ? ` <span style="color:#ff6b6b;font-weight:bold">[BANNED]</span>`
+      : "";
     const agentCell = identity.agent_name
-      ? `<td>${identity.agent_name}</td>`
-      : `<td style="color:#555;font-style:italic">default</td>`;
+      ? `<td>${identity.agent_name}${bannedTag}</td>`
+      : `<td style="color:#555;font-style:italic">default${bannedTag}</td>`;
 
     return `<tr>
       <td title="${identity.id}">${idDisplay}</td>

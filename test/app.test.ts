@@ -558,6 +558,124 @@ describe("IBP state transitions", () => {
   });
 });
 
+describe("Identity Governance", () => {
+  it("banned identity cannot lock bond", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "ban test" }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe("IDENTITY_BANNED");
+  });
+
+  it("banned identity cannot execute action", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+    const bondId = await lockBond(app, identityId, 1000, "pre-ban bond");
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    const actionBody = { identityId, actionType: "test-action", bondId };
+    const response = await executeSignedAction(app, signer, actionBody);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe("IDENTITY_BANNED");
+  });
+
+  it("admin can unban identity", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/unban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "post-unban bond" }
+    });
+
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("auto-bans identity after 3 malicious resolutions", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    // Lock all 3 bonds upfront before any ban can trigger
+    const bondId1 = await lockBond(app, identityId, 10000, "malicious-bond-1");
+    const bondId2 = await lockBond(app, identityId, 10000, "malicious-bond-2");
+    const bondId3 = await lockBond(app, identityId, 10000, "malicious-bond-3");
+
+    for (const bondId of [bondId1, bondId2, bondId3]) {
+      const actionBody = { identityId, actionType: "bad-action", bondId };
+      const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+
+      const resolveBody = { outcome: "malicious" as const };
+      await app.inject({
+        method: "POST",
+        url: `/v1/actions/${actionId}/resolve`,
+        payload: resolveBody,
+        headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      });
+    }
+
+    const lockResponse = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "post-ban attempt" }
+    });
+
+    expect(lockResponse.statusCode).toBe(403);
+    expect(lockResponse.json().error).toBe("IDENTITY_BANNED");
+  });
+
+  it("ban/unban returns 404 for unknown identity", async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: "dGhpcyBpcyBub3QgYSByZWFsIHB1YmxpY2tleQ==" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error).toBe("IDENTITY_NOT_FOUND");
+  });
+});
+
 describe("nonce replay protection", () => {
   it("rejects duplicate nonce for same identity", async () => {
     const app = await buildApp();

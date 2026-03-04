@@ -5,10 +5,12 @@ import { createDatabase } from "./db";
 import { AppError } from "./errors";
 import { createLogger, generateRequestId } from "./logger";
 import {
+  banIdentitySchema,
   createIdentitySchema,
   executeActionSchema,
   lockBondSchema,
-  resolveActionSchema
+  resolveActionSchema,
+  unbanIdentitySchema
 } from "./schemas";
 import { isFreshTimestamp, verifyRequestSignature } from "./signing";
 import { IbpService } from "./service";
@@ -217,6 +219,24 @@ export function createApp(options: AppOptions = {}): AppInstance {
       ok: true,
       received: request.body
     });
+  });
+
+  app.post("/admin/ban-identity", async (request, reply) => {
+    const body = banIdentitySchema.parse(request.body);
+    const updated = service.banIdentity(body.publicKey);
+    if (!updated) {
+      throw new AppError(404, "IDENTITY_NOT_FOUND", "Identity not found");
+    }
+    reply.send({ status: "banned" });
+  });
+
+  app.post("/admin/unban-identity", async (request, reply) => {
+    const body = unbanIdentitySchema.parse(request.body);
+    const updated = service.unbanIdentity(body.publicKey);
+    if (!updated) {
+      throw new AppError(404, "IDENTITY_NOT_FOUND", "Identity not found");
+    }
+    reply.send({ status: "active" });
   });
 
   app.get("/health", async (_request, reply) => {

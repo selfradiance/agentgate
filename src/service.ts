@@ -48,6 +48,7 @@ export class IbpService {
   }
 
   lockBond(input: LockBondInput) {
+    this.assertNotBanned(input.identityId);
     this.getIdentityOrThrow(input.identityId);
 
     const id = `bond_${randomUUID()}`;
@@ -84,6 +85,7 @@ export class IbpService {
   }
 
   async executeAction(input: ExecuteActionInput) {
+    this.assertNotBanned(input.identityId);
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
@@ -232,6 +234,27 @@ export class IbpService {
         bondId: action.bond_id.slice(0, 20),
         slashedCents: settlement.slashedCents,
       });
+
+      const { count: maliciousCount } = this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM actions
+           WHERE identity_id = ? AND status = 'malicious'`
+        )
+        .get(action.identity_id) as { count: number };
+
+      if (maliciousCount >= 3) {
+        const identity = this.db
+          .prepare(`SELECT public_key FROM identities WHERE id = ?`)
+          .get(action.identity_id) as { public_key: string } | undefined;
+        if (identity) {
+          this.banIdentity(identity.public_key);
+          createLogger().warn("identity auto-banned", {
+            event: "identity_auto_banned",
+            identityId: action.identity_id.slice(0, 16),
+            maliciousCount,
+          });
+        }
+      }
     }
 
     return {
@@ -345,6 +368,41 @@ export class IbpService {
   getActionIdentityPublicKey(actionId: string) {
     const action = this.getActionOrThrow(actionId);
     return this.getIdentityOrThrow(action.identity_id).public_key;
+  }
+
+  getIdentityStatus(publicKey: string): 'active' | 'banned' | null {
+    const row = this.db
+      .prepare(`SELECT status FROM identities WHERE public_key = ?`)
+      .get(publicKey) as { status: 'active' | 'banned' } | undefined;
+    return row?.status ?? null;
+  }
+
+  banIdentity(publicKey: string): boolean {
+    const result = this.db
+      .prepare(`UPDATE identities SET status = 'banned' WHERE public_key = ?`)
+      .run(publicKey);
+    return result.changes > 0;
+  }
+
+  unbanIdentity(publicKey: string): boolean {
+    const result = this.db
+      .prepare(`UPDATE identities SET status = 'active' WHERE public_key = ?`)
+      .run(publicKey);
+    return result.changes > 0;
+  }
+
+  private assertNotBanned(identityId: string) {
+    const row = this.db
+      .prepare(`SELECT status FROM identities WHERE id = ?`)
+      .get(identityId) as { status: string } | undefined;
+    if (row?.status === 'banned') {
+      createLogger().warn("banned identity attempted action", {
+        event: "auth_failed",
+        reason: "identity_banned",
+        identityId: identityId.slice(0, 16),
+      });
+      throw new AppError(403, "IDENTITY_BANNED", "This identity has been banned and cannot perform actions");
+    }
   }
 
   private getIdentityOrThrow(identityId: string) {

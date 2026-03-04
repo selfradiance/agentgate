@@ -82,6 +82,13 @@ export function createDatabase(filename: string): DatabaseHandle {
     // Column already exists — no-op
   }
 
+  // Migration: add status column to existing databases that predate it
+  try {
+    db.exec(`ALTER TABLE identities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  } catch {
+    // Column already exists — no-op
+  }
+
   return {
     db,
     close: () => db.close()

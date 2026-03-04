@@ -30,7 +30,17 @@ export const resolveActionSchema = z.object({
   outcome: z.enum(["success", "failed", "malicious"])
 });
 
+export const banIdentitySchema = z.object({
+  publicKey: z.string().trim().min(1, "publicKey is required")
+});
+
+export const unbanIdentitySchema = z.object({
+  publicKey: z.string().trim().min(1, "publicKey is required")
+});
+
 export type CreateIdentityInput = z.infer<typeof createIdentitySchema>;
 export type LockBondInput = z.infer<typeof lockBondSchema>;
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>;
 export type ResolveActionInput = z.infer<typeof resolveActionSchema>;
+export type BanIdentityInput = z.infer<typeof banIdentitySchema>;
+export type UnbanIdentityInput = z.infer<typeof unbanIdentitySchema>;

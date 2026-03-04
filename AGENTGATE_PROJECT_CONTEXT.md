@@ -136,6 +136,7 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 - Outbound HTTP: allowlist enforcement, timeout, max request/response size
 - Ed25519 signature verification on all state-changing requests
 - Auto-slash on expired bonds (sweeper)
+- Identity governance: auto-ban after 3 malicious resolutions, manual ban/unban via admin API
 
 ### Reputation Scoring
 - Formula: locks×2 + actions×3 + successes×10 - failures×5 - malicious×20
@@ -235,7 +236,7 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 ### Run tests:
 npm run test
 
-All 48 tests should pass.
+All 53 tests should pass.
 
 ---
 
@@ -291,13 +292,13 @@ All 48 tests should pass.
 48. ✅ Red team Phase 5: outbound HTTP — 9 attack tests (IPv6, encoded IPs, non-HTTP schemes, redirect targets), found and fixed redirect bypass SSRF vulnerability and IPv6 bracket allowlist bug
 49. ✅ Red team plan document added at docs/red-team-plan.md — 20 attack scenarios across 5 phases
 50. ✅ v0.2.0 tagged and pushed — Security & Adversarial Hardening release, 48 tests across 5 red team phases, 3 bugs fixed, 1 SSRF vulnerability closed
+51. ✅ Identity governance: status field on identities (active/banned), admin ban/unban endpoints (POST /admin/ban-identity, POST /admin/unban-identity) protected by API key, auto-ban after 3 malicious resolutions with security event logging, banned identities rejected at lockBond and executeAction with 403 IDENTITY_BANNED, dashboard shows status column and [BANNED] tag on reputation scores, 5 new tests (53 total)
 
 ---
 
 ## Known Issues / Tech Debt
 
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
-- **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
 
 ---
 
