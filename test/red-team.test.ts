@@ -993,6 +993,68 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
   });
 });
 
+describe("Attack 3.4 — parallel duplicate nonce submission", () => {
+  const apps: AppInstance[] = [];
+
+  afterEach(async () => {
+    while (apps.length > 0) {
+      await apps.pop()?.close();
+    }
+  });
+
+  async function buildApp(): Promise<AppInstance> {
+    const app = createApp({ dbPath: ":memory:" });
+    apps.push(app);
+    await app.ready();
+    return app;
+  }
+
+  it("allows exactly one request through when two identical nonces are submitted concurrently", async () => {
+    const app = await buildApp();
+
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { "x-nonce": randomUUID() },
+      payload: { publicKey: generatePublicKey() }
+    });
+    const { identityId } = identityResponse.json() as { identityId: string };
+
+    const nonce = randomUUID();
+    const payload = {
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-3.4"
+    };
+
+    // Fire both requests with the same nonce simultaneously.
+    // better-sqlite3 is synchronous, so the two INSERT OR IGNORE calls are
+    // serialized at the SQLite level — exactly one will write a row and the
+    // other will be ignored (changes = 0), triggering DUPLICATE_NONCE.
+    const [resA, resB] = await Promise.all([
+      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: { "x-nonce": nonce }, payload }),
+      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: { "x-nonce": nonce }, payload }),
+    ]);
+
+    const statuses = [resA.statusCode, resB.statusCode].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const errors = [resA, resB].filter((r) => r.statusCode === 409);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].json().error).toBe("DUPLICATE_NONCE");
+
+    // Only one bond should have been created
+    const bonds = app.db
+      .prepare(`SELECT id FROM bonds WHERE identity_id = ?`)
+      .all(identityId) as Array<{ id: string }>;
+    expect(bonds).toHaveLength(1);
+
+    validateInvariants(app.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
