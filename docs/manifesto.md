@@ -22,13 +22,15 @@ That's the thesis. Now here's the part that surprised me.
 
 ---
 
-## I'm Not a Coder. I'm an Investor.
+## I'm Not a Coder. I'm Not Much of Anything, Professionally.
 
-I've spent my career analyzing systems. Figuring out where the risk is, where the leverage is, where the misalignment between incentives and outcomes creates opportunity. That's what investors do.
+If you asked me what I do for a living, I'd tell you I boogie board, ride my mountain bike, and hike. I live in Florida. I've never really had what most people would call a career. My father used to joke that I've never had a job, and he wasn't entirely wrong.
 
-When I looked at the AI agent landscape, I saw a gap: there was no economic accountability layer. Agents could act, but they couldn't be held financially responsible for acting badly. That's a structural problem, and I understood it the way I understand any structural problem — not through code, but through incentives.
+I have no formal training in anything technical. I'm the kind of person who reads a lot and thinks about how things work — not because it's my job, but because I'm curious.
 
-The problem was, I couldn't build anything. I could see the architecture in my head — the bond model, the exposure lifecycle, the settlement logic — but I had no way to turn that into software.
+When I started reading about AI agents, I noticed a gap: there was no economic accountability layer. Agents could act, but they couldn't be held financially responsible for acting badly. I understood this not through any professional expertise, but just by asking basic questions: what happens if this fails? What if someone does this twice? What if it just doesn't work?
+
+The problem was, I couldn't build anything. I could see how the system should work in my head, but I had no way to turn that into software.
 
 Then I started using AI coding agents.
 
