@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, randomUUID, sign, type KeyObject } fro
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, type AppInstance } from "../src/app";
 import { createDatabase, type DatabaseHandle } from "../src/db";
+import { assertUrlAllowed } from "../src/http.js";
 import { IbpService } from "../src/service";
 
 // ---------------------------------------------------------------------------
@@ -1205,6 +1206,76 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
 
     // The core assertion: exposure accounting must be correct in all orderings
     validateInvariants(app.db);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Outbound HTTP attack simulation
+// These tests call assertUrlAllowed directly; no bond or HTTP server needed.
+// ---------------------------------------------------------------------------
+
+describe("Attack 5.1 — localhost bypass via IPv6", () => {
+  it("allows the short-form ::1 (on the default allowlist)", () => {
+    // new URL("http://[::1]/").hostname === "[::1]" — WHATWG spec serialises
+    // IPv6 addresses with brackets. assertUrlAllowed strips brackets before the
+    // allowlist lookup so "::1" matches the default allowlist entry correctly.
+    expect(() => assertUrlAllowed("http://[::1]:3000/")).not.toThrow();
+  });
+
+  it("allows the expanded-form IPv6 localhost — WHATWG URL normalises 0:0:0:0:0:0:0:1 to ::1", () => {
+    // The WHATWG URL parser normalises expanded IPv6 addresses to their compact
+    // form AND includes brackets: new URL("http://[0:0:0:0:0:0:0:1]/").hostname
+    // === "[::1]". assertUrlAllowed strips the brackets before the allowlist
+    // lookup, so both short- and long-form IPv6 localhost are correctly allowed.
+    expect(() => assertUrlAllowed("http://[0:0:0:0:0:0:0:1]:3000/")).not.toThrow();
+  });
+});
+
+describe("Attack 5.2 — localhost bypass via encoded IP variants", () => {
+  it("blocks 127.0.0.1.nip.io — DNS-based redirect trick, not a numeric IP", () => {
+    // new URL("http://127.0.0.1.nip.io/").hostname === "127.0.0.1.nip.io"
+    // It is a domain name, not a numeric IP, so the URL parser does not
+    // normalise it. The string does not match any default allowlist entry.
+    expect(() => assertUrlAllowed("http://127.0.0.1.nip.io/")).toThrow();
+  });
+
+  it("documents hex IP behaviour — WHATWG parser normalises 0x7f000001 to 127.0.0.1", () => {
+    // new URL("http://0x7f000001/").hostname === "127.0.0.1" (WHATWG IPv4 parsing
+    // handles hex, octal, and decimal-integer notations). The normalised hostname
+    // matches the default allowlist entry "127.0.0.1", so assertUrlAllowed allows
+    // it. This is safe: the attacker still only reaches localhost.
+    expect(() => assertUrlAllowed("http://0x7f000001/")).not.toThrow();
+  });
+
+  it("documents decimal IP behaviour — WHATWG parser normalises 2130706433 to 127.0.0.1", () => {
+    // 2130706433 == 0x7f000001 == 127.0.0.1. Same WHATWG normalisation applies.
+    expect(() => assertUrlAllowed("http://2130706433/")).not.toThrow();
+  });
+});
+
+describe("Attack 5.3 — non-HTTP schemes", () => {
+  it("blocks file:// scheme", () => {
+    expect(() => assertUrlAllowed("file:///etc/passwd")).toThrow(/Disallowed protocol/);
+  });
+
+  it("blocks ftp:// scheme", () => {
+    expect(() => assertUrlAllowed("ftp://evil.com/")).toThrow(/Disallowed protocol/);
+  });
+
+  it("blocks gopher:// scheme", () => {
+    expect(() => assertUrlAllowed("gopher://evil.com/")).toThrow(/Disallowed protocol/);
+  });
+});
+
+describe("Attack 5.4 — redirect to non-allowlisted host", () => {
+  it("blocks a URL whose host is not on the allowlist", () => {
+    // The redirect: "manual" change in postJson means any 3xx response has its
+    // Location header extracted and passed through assertUrlAllowed before the
+    // redirect is followed. This test confirms that assertUrlAllowed blocks
+    // non-allowlisted hosts — the same check that guards redirect targets.
+    expect(() => assertUrlAllowed("http://evil.com/")).toThrow(/not allowlisted/);
+    expect(() => assertUrlAllowed("http://internal-service/")).toThrow(/not allowlisted/);
+    expect(() => assertUrlAllowed("https://169.254.169.254/latest/meta-data/")).toThrow(/not allowlisted/);
   });
 });
 

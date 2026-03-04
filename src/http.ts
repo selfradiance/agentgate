@@ -18,7 +18,7 @@ function buildAllowlist(): Set<string> {
   );
 }
 
-function assertUrlAllowed(rawUrl: string) {
+export function assertUrlAllowed(rawUrl: string) {
   let u: URL;
   try {
     u = new URL(rawUrl);
@@ -43,7 +43,14 @@ function assertUrlAllowed(rawUrl: string) {
   }
 
   const allowlist = buildAllowlist();
-  const host = u.hostname;
+
+  // new URL("http://[::1]/").hostname === "[::1]" (WHATWG spec includes brackets
+  // for IPv6). Allowlist entries are stored without brackets (e.g. "::1"), so
+  // strip them before the lookup.
+  const rawHost = u.hostname;
+  const host = rawHost.startsWith("[") && rawHost.endsWith("]")
+    ? rawHost.slice(1, -1)
+    : rawHost;
 
   if (!allowlist.has(host)) {
     createLogger().warn("outbound HTTP blocked", {
