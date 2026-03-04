@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApp, type AppInstance } from "../src/app";
 import { createDatabase, type DatabaseHandle } from "../src/db";
 import { IbpService } from "../src/service";
 
@@ -810,6 +811,75 @@ describe("Attack 2.3 — expiry during execution", () => {
     expect(bond.outstanding_exposure_cents).toBe(0);
 
     validateInvariants(handle.db);
+  });
+});
+
+describe("Attack 3.1 — exact duplicate request (replay)", () => {
+  const apps: AppInstance[] = [];
+
+  afterEach(async () => {
+    while (apps.length > 0) {
+      await apps.pop()?.close();
+    }
+  });
+
+  async function buildApp(): Promise<AppInstance> {
+    const app = createApp({ dbPath: ":memory:" });
+    apps.push(app);
+    await app.ready();
+    return app;
+  }
+
+  it("rejects the second request that replays an identical nonce, signature, and timestamp", async () => {
+    const app = await buildApp();
+
+    // Create an identity (no signature required — identity creation is unauthenticated)
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { "x-nonce": randomUUID() },
+      payload: { publicKey: generatePublicKey() }
+    });
+    expect(identityResponse.statusCode).toBe(201);
+    const { identityId } = identityResponse.json() as { identityId: string };
+
+    // Lock a bond with a fixed nonce — this is the request we will replay
+    const nonce = randomUUID();
+    const payload = {
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-3.1"
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload
+    });
+    expect(first.statusCode).toBe(201);
+    const bondId = first.json().bondId as string;
+
+    // Exact replay — same nonce, same payload, same URL
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": nonce },
+      payload
+    });
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().error).toBe("DUPLICATE_NONCE");
+
+    // Only one bond should exist — the replayed request must not have created a second one
+    const bonds = app.db
+      .prepare(`SELECT id FROM bonds WHERE identity_id = ?`)
+      .all(identityId) as Array<{ id: string }>;
+    expect(bonds).toHaveLength(1);
+    expect(bonds[0].id).toBe(bondId);
+
+    validateInvariants(app.db);
   });
 });
 

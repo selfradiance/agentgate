@@ -89,6 +89,7 @@ function assertSignedRequest(
 }
 
 export type AppInstance = FastifyInstance & {
+  db: Database.Database;
   sweep(): number;
   sweepExpiredActions(): { slashedCount: number };
   cleanExpiredNonces(): { purgedCount: number };
@@ -235,6 +236,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
   });
 
   return Object.assign(app, {
+    db: database.db,
     sweep: () => service.sweepExpiredActions().slashedCount,
     sweepExpiredActions: () => service.sweepExpiredActions(),
     cleanExpiredNonces: () => service.cleanExpiredNonces(),
