@@ -60,8 +60,24 @@ function assertUrlAllowed(rawUrl: string) {
   // (For now we allow any port on allowlisted host.)
 }
 
-export async function postJson(url: string, body: unknown) {
+export async function postJson(url: string, body: unknown): Promise<unknown> {
+  return postJsonWithDepth(url, body, 0);
+}
+
+async function postJsonWithDepth(url: string, body: unknown, depth: number): Promise<unknown> {
+  if (depth > 5) {
+    throw new Error("REDIRECT_BLOCKED: too many redirects");
+  }
+
   assertUrlAllowed(url);
+
+  // Serialize and size-check the request body before opening a connection
+  const serialized = JSON.stringify(body);
+  const maxBodyBytes = Number(process.env.AGENTGATE_HTTP_MAX_BODY_BYTES || 4096);
+  const bodyBytes = Buffer.byteLength(serialized, "utf8");
+  if (bodyBytes > maxBodyBytes) {
+    throw new Error(`Request body too large: ${bodyBytes} bytes (max ${maxBodyBytes})`);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -70,18 +86,26 @@ export async function postJson(url: string, body: unknown) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // Enforce max payload size (bytes) before sending
-      body: (() => {
-        const json = JSON.stringify(body);
-        const maxBytes = Number(process.env.AGENTGATE_HTTP_MAX_BODY_BYTES || 4096);
-        const bytes = Buffer.byteLength(json, "utf8");
-        if (bytes > maxBytes) {
-          throw new Error(`Request body too large: ${bytes} bytes (max ${maxBytes})`);
-        }
-        return json;
-      })(),
-      signal: controller.signal
+      body: serialized,
+      signal: controller.signal,
+      redirect: "manual",
     });
+
+    // Handle redirects manually so every hop is re-validated against the allowlist.
+    // Without this check, an allowlisted host could 302 to an internal service,
+    // bypassing the allowlist entirely.
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) {
+        throw new Error("REDIRECT_BLOCKED: redirect response has no Location header");
+      }
+      try {
+        assertUrlAllowed(location);
+      } catch (err: any) {
+        throw new Error(`REDIRECT_BLOCKED: ${err.message}`);
+      }
+      return postJsonWithDepth(location, body, depth + 1);
+    }
 
     // Read response with size limit
     const reader = res.body?.getReader();
