@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 11)
+**Last updated:** 2026-03-03 (Session 12)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -55,12 +55,12 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 
 | File | Purpose |
 |------|---------|
-| src/mcp/server.ts | MCP server — exposes 5 tools; has createMcpServer(adapter) factory for testability |
-| src/mcp/http-server.ts | MCP Streamable HTTP transport — Express server on port 3001, session management, serves same 5 tools over HTTP |
+| src/mcp/server.ts | MCP server — exposes 7 tools; has createMcpServer(adapter) factory for testability |
+| src/mcp/http-server.ts | MCP Streamable HTTP transport — Express server on port 3001, session management, serves same 7 tools over HTTP |
 | src/agent-adapter.ts | Clean agent-facing interface, hides crypto signing and nonce generation; accepts optional identityPath or agentName — named agents get their own agent-identity-{name}.json file |
 | src/app.ts | Fastify route handlers (REST API); enforces x-nonce header on all POST routes, records nonces for duplicate detection; exposes sweepExpiredActions() and getDashboardData() for index.ts |
 | src/dashboard.ts | Real-time HTML dashboard — shows summary bar, reputation scores, bonds, actions, identities with color-coded statuses, truncated IDs, auto-refresh every 5 seconds |
-| src/service.ts | Core logic — bond locking, action execution, resolution, slashing, expired action sweeping, nonce TTL cleanup |
+| src/service.ts | Core logic — bond locking, action execution, resolution, slashing, expired action sweeping, nonce TTL cleanup, createMarket(), resolveMarket() |
 | src/signing.ts | Ed25519 cryptographic signing and verification |
 | src/http.ts | Outbound HTTP safety rails (allowlist, timeout, size limits) |
 | src/schemas.ts | Zod validation schemas for all endpoints |
@@ -74,7 +74,8 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 | examples/adapter-demo.ts | End-to-end adapter demo script |
 | examples/toy-agent.ts | Original toy agent example |
 | test/app.test.ts | Comprehensive HTTP API + nonce replay protection test suite |
-| test/mcp-integration.test.ts | End-to-end MCP integration test (all 5 tools) |
+| test/mcp-integration.test.ts | End-to-end MCP integration test (all 5 original tools) |
+| test/market.test.ts | Prediction market tests — happy path, double-resolution rejection, cross-market isolation |
 | test/sweeper.test.ts | Sweeper tests for expired action auto-slashing |
 | test/red-team.test.ts | Red team adversarial test suite — invariant validator + 20 attack scenarios across 5 phases (bond math, sweeper, replay, concurrency, outbound HTTP) |
 | docs/threat-model.md | Threat model — attacks, defenses, non-goals, assumptions |
@@ -83,13 +84,15 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 
 ---
 
-## MCP Tools (5 tools exposed to Claude Desktop)
+## MCP Tools (7 tools exposed to Claude Desktop)
 
 1. **create_identity** — Creates or loads an Ed25519 identity (auto-called by other tools)
 2. **lock_bond** — Locks a bond (stake) for an identity. Inputs: amount_cents, ttl_seconds, reason
 3. **execute_bonded_action** — Executes an action through the gate. Inputs: bondId, actionType, payload, exposure_cents
 4. **resolve_action** — Resolves an action as success/failed/malicious. Inputs: actionId, outcome
 5. **get_reputation** — Gets identity reputation score. Inputs: identityId
+6. **create_market** — Creates a prediction market with a yes/no question and resolution deadline. Inputs: question, resolution_deadline
+7. **resolve_market** — Resolves an open market as yes/no, auto-settles all positions. Inputs: marketId, outcome
 
 ---
 
@@ -128,6 +131,14 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 - Resolves each expired action as 'malicious' using the full resolveAction() settlement logic
 - Logs [sweeper] slashed N expired actions every tick so you can see it's alive
 - Clean shutdown: SIGINT (Ctrl+C) and SIGTERM clear the interval before closing the server
+
+### Prediction Markets
+- Markets are yes/no questions with a question string and a resolution deadline (ISO timestamp)
+- Agents take positions via `execute_bonded_action` with `actionType: "market.position"` and `payload: { marketId, side }` where side is `"yes"` or `"no"`
+- `resolveMarket(marketId, outcome)` batch-settles all open positions on that market: correct side → `success` (bond released), wrong side → `failed` (bond burned)
+- Double resolution is rejected with `MARKET_ALREADY_RESOLVED` (409)
+- Cross-market isolation: resolving one market only settles positions whose payload references that marketId — positions on other markets are unaffected
+- Occupied bonds now correctly accept concurrent actions (capacity permitting): `assertBondCanBackAction` allows both `active` and `occupied` bond status
 
 ### Safety Rails
 - Rate limiting: 10 executes per 60 seconds per identity
@@ -236,7 +247,7 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 ### Run tests:
 npm run test
 
-All 53 tests should pass.
+All 56 tests should pass.
 
 ---
 
@@ -293,6 +304,7 @@ All 53 tests should pass.
 49. ✅ Red team plan document added at docs/red-team-plan.md — 20 attack scenarios across 5 phases
 50. ✅ v0.2.0 tagged and pushed — Security & Adversarial Hardening release, 48 tests across 5 red team phases, 3 bugs fixed, 1 SSRF vulnerability closed
 51. ✅ Identity governance: status field on identities (active/banned), admin ban/unban endpoints (POST /admin/ban-identity, POST /admin/unban-identity) protected by API key, auto-ban after 3 malicious resolutions with security event logging, banned identities rejected at lockBond and executeAction with 403 IDENTITY_BANNED, dashboard shows status column and [BANNED] tag on reputation scores, 5 new tests (53 total)
+52. ✅ Prediction market demo: markets table, MarketRecord type, createMarket/resolveMarket service methods, Zod schemas, two REST endpoints (POST /markets, POST /markets/:marketId/resolve), two new MCP tools (7 total), two adapter methods, dashboard shows markets with summary stat and table, 3 market tests (happy path, double-resolution rejection, cross-market isolation), fix: occupied bonds now correctly accept concurrent actions (56 total tests)
 
 ---
 

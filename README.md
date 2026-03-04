@@ -178,7 +178,7 @@ Environment variables:
 
 ## MCP Transport
 
-AgentGate exposes its 5 tools to Claude Desktop over two transports:
+AgentGate exposes its 7 tools to Claude Desktop over two transports:
 
 - **Streamable HTTP** (recommended) — Express server on port 3001 at `/mcp`. Claude Desktop connects via `mcp-remote`. Sessions are managed server-side.
 - **stdio** — launches `src/mcp/server.ts` as a subprocess directly from Claude Desktop.
@@ -212,6 +212,50 @@ Both transports require the AgentGate HTTP server (`npm run restart`) to be runn
 ```
 
 File location: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+### MCP Tools (7 total)
+
+| Tool | Description |
+|---|---|
+| `create_identity` | Create or load an Ed25519 agent identity |
+| `lock_bond` | Lock a bond (stake) for an identity |
+| `execute_bonded_action` | Execute a bonded action through the gate |
+| `resolve_action` | Resolve an action as success/failed/malicious |
+| `get_reputation` | Get identity reputation score |
+| `create_market` | Create a prediction market with a yes/no question and resolution deadline |
+| `resolve_market` | Resolve an open market as yes/no — settles all positions automatically |
+
+---
+
+## Prediction Markets
+
+AgentGate includes a prediction market demo that illustrates multi-agent economic coordination using bonds as stake.
+
+**How it works:**
+
+1. An operator creates a market with a yes/no question and a resolution deadline
+2. Agents take positions by executing a `market.position` action against a locked bond, declaring a `side` of `yes` or `no`
+3. When the market resolves, all open positions are settled automatically — winners' bonds are released, losers' bonds are burned
+
+**REST endpoints:**
+
+```bash
+# Create a market
+curl -s http://127.0.0.1:3000/markets \
+  -H 'content-type: application/json' \
+  -H 'x-agentgate-key: YOUR_KEY' \
+  -d '{ "question": "Will BTC hit 100k by Friday?", "resolutionDeadline": "2025-01-10T00:00:00Z" }'
+
+# Resolve a market
+curl -s http://127.0.0.1:3000/markets/<marketId>/resolve \
+  -H 'content-type: application/json' \
+  -H 'x-agentgate-key: YOUR_KEY' \
+  -d '{ "outcome": "yes" }'
+```
+
+**MCP tools:** `create_market` and `resolve_market` expose the same flow to Claude Desktop.
+
+The dashboard shows a live Markets table with status color-coding (open → amber, resolved → green).
 
 ---
 
@@ -390,9 +434,9 @@ npm run example:toy-agent
 ## Project Files
 
 * `src/` — core server logic (Fastify API, service layer, database, signing, logging)
-* `src/mcp/` — MCP server exposing 5 tools for Claude Desktop integration
+* `src/mcp/` — MCP server exposing 7 tools for Claude Desktop integration
 * `src/agent-adapter.ts` — clean agent-facing interface that hides signing and HTTP details
 * `src/dashboard.ts` — real-time HTML dashboard
-* `test/` — test suite (48 tests, including red team adversarial suite)
+* `test/` — test suite (56 tests, including red team adversarial suite and prediction market tests)
 * `examples/` — demo agents and adapter demo
 * `docs/` — threat model and design docs
