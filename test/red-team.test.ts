@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, type AppInstance } from "../src/app";
 import { createDatabase, type DatabaseHandle } from "../src/db";
@@ -21,6 +21,29 @@ function generatePublicKey(): string {
   const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey;
   if (!jwk.x) throw new Error("Missing Ed25519 public key x component");
   return fromBase64Url(jwk.x);
+}
+
+// ---------------------------------------------------------------------------
+// createSigner / signHeaders — used by HTTP-layer red-team tests that need
+// to send signed executeAction requests
+// ---------------------------------------------------------------------------
+function createSigner() {
+  const { publicKey: pubKeyObj, privateKey } = generateKeyPairSync("ed25519");
+  const jwk = pubKeyObj.export({ format: "jwk" }) as JsonWebKey;
+  if (!jwk.x) throw new Error("Missing Ed25519 public key x component");
+  return { privateKey, publicKey: fromBase64Url(jwk.x) };
+}
+
+function signHeaders(
+  privateKey: KeyObject,
+  body: Record<string, unknown>,
+  timestamp = Date.now().toString()
+) {
+  const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+  return {
+    "x-agentgate-timestamp": timestamp,
+    "x-agentgate-signature": sign(null, message, privateKey).toString("base64"),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -878,6 +901,93 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
       .all(identityId) as Array<{ id: string }>;
     expect(bonds).toHaveLength(1);
     expect(bonds[0].id).toBe(bondId);
+
+    validateInvariants(app.db);
+  });
+});
+
+describe("Attack 3.2 — replay just inside the 60-second timestamp window", () => {
+  const apps: AppInstance[] = [];
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    while (apps.length > 0) {
+      await apps.pop()?.close();
+    }
+  });
+
+  async function buildApp(): Promise<AppInstance> {
+    const app = createApp({ dbPath: ":memory:" });
+    apps.push(app);
+    await app.ready();
+    return app;
+  }
+
+  it("rejects a replayed nonce even when the original timestamp is still within the 60-second window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
+
+    const app = await buildApp();
+    const { privateKey, publicKey } = createSigner();
+
+    // Create identity and lock a bond at T=0
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { "x-nonce": randomUUID() },
+      payload: { publicKey }
+    });
+    const { identityId } = identityResponse.json() as { identityId: string };
+
+    const bondResponse = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-3.2" }
+    });
+    const { bondId } = bondResponse.json() as { bondId: string };
+
+    // Build the signed action body. Use a timestamp 55 seconds in the past —
+    // still valid (55 < 60), but close to the edge.
+    const timestamp = (Date.now() - 55_000).toString();
+    const nonce = randomUUID();
+    const actionBody = {
+      identityId,
+      bondId,
+      actionType: "attack-3.2",
+      exposure_cents: 100,
+    };
+    const headers = signHeaders(privateKey, actionBody, timestamp);
+
+    // First request: timestamp is 55s old, nonce is fresh → accepted
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: { ...headers, "x-nonce": nonce },
+    });
+    expect(first.statusCode).toBe(201);
+
+    // Advance time 4 seconds — the original timestamp is now 59s old, still < 60s
+    vi.setSystemTime(new Date("2026-03-04T12:00:04.000Z"));
+
+    // Replay: same nonce, same timestamp, same signature — timestamp still valid,
+    // but the nonce was already consumed. Must be rejected with DUPLICATE_NONCE,
+    // not allowed through because the timestamp window hasn't closed.
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: { ...headers, "x-nonce": nonce },
+    });
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().error).toBe("DUPLICATE_NONCE");
+
+    // Exactly one action should exist — the replay must not have created a second
+    const actions = app.db
+      .prepare(`SELECT id FROM actions WHERE identity_id = ?`)
+      .all(identityId) as Array<{ id: string }>;
+    expect(actions).toHaveLength(1);
 
     validateInvariants(app.db);
   });
