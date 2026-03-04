@@ -14,6 +14,8 @@ AgentGate sits as a deterministic choke point between autonomous agents and exte
 
 > **[Threat Model →](docs/threat-model.md)** — What AgentGate defends against, what it doesn't, and why.
 
+Read the full story: [How I Built AgentGate](docs/manifesto.md)
+
 ---
 
 ## Quick Integration

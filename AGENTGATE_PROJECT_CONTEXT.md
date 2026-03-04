@@ -305,6 +305,9 @@ All 56 tests should pass.
 50. ✅ v0.2.0 tagged and pushed — Security & Adversarial Hardening release, 48 tests across 5 red team phases, 3 bugs fixed, 1 SSRF vulnerability closed
 51. ✅ Identity governance: status field on identities (active/banned), admin ban/unban endpoints (POST /admin/ban-identity, POST /admin/unban-identity) protected by API key, auto-ban after 3 malicious resolutions with security event logging, banned identities rejected at lockBond and executeAction with 403 IDENTITY_BANNED, dashboard shows status column and [BANNED] tag on reputation scores, 5 new tests (53 total)
 52. ✅ Prediction market demo: markets table, MarketRecord type, createMarket/resolveMarket service methods, Zod schemas, two REST endpoints (POST /markets, POST /markets/:marketId/resolve), two new MCP tools (7 total), two adapter methods, dashboard shows markets with summary stat and table, 3 market tests (happy path, double-resolution rejection, cross-market isolation), fix: occupied bonds now correctly accept concurrent actions (56 total tests)
+53. ✅ MIT License: added LICENSE file (MIT, 2025, James Toole) — repo is now legally open source
+54. ✅ GitHub Actions CI: .github/workflows/ci.yml runs npm ci and npm test on every push and PR to main, green checkmark on repo
+55. ✅ SSH authentication for GitHub: Ed25519 SSH key linked to GitHub account, remote switched from HTTPS to SSH, resolves workflow scope permission issue with PAT
 
 ---
 
@@ -351,7 +354,7 @@ If one AI tool is unavailable, development should continue using another without
 - The project folder is at ~/Desktop/agentgate
 - Claude Code is the primary coding tool — James pastes instructions into Claude Code
 - Claude Code edits files locally — James must run git push separately to update GitHub
-- The GitHub repo name is "agentgate" under the "selfradiance" account
+- The GitHub repo name is "agentgate" under the "selfradiance" account — remote uses SSH: git@github.com:selfradiance/agentgate.git
 - agent-identity*.json files contain private keys — the wildcard .gitignore pattern covers all of them; never commit any of these files
 - Use npm run restart (not just npm run dev) to avoid ghost server processes on port 3000
 - James also keeps ChatGPT updated with the latest markdown file as a backup collaborator
