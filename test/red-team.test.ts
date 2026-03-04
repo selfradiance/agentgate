@@ -505,6 +505,59 @@ describe("Attack 1.5B — negative exposure declaration", () => {
   });
 });
 
+describe("Attack 1.6 — extremely large exposure value", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects an action whose exposure_cents is Number.MAX_SAFE_INTEGER", async () => {
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 300,
+      reason: "attack-1.6",
+    });
+
+    // The 1.2x multiplier applied to Number.MAX_SAFE_INTEGER pushes the
+    // effective exposure well beyond safe integer range. However, even before
+    // any overflow concern, the capacity check fires: the effective value
+    // (however large) vastly exceeds the 1000-cent bond — so the system
+    // must reject it with INSUFFICIENT_BOND_CAPACITY before any state change.
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.6",
+        exposure_cents: Number.MAX_SAFE_INTEGER,
+      })
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_BOND_CAPACITY" });
+
+    // Bond must be untouched — still active, zero outstanding
+    const bond = handle.db
+      .prepare(`SELECT status, outstanding_exposure_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; outstanding_exposure_cents: number };
+    expect(bond.status).toBe("active");
+    expect(bond.outstanding_exposure_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
