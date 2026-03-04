@@ -176,6 +176,8 @@ Replay protection prevents an attacker from re-submitting a signed request to ex
 
 **Priority:** P1 (this is more of an analysis than a test — we need to understand the interaction between nonce TTL and the timestamp window)
 
+**Result: Safe by design.** The 60-second timestamp window closes long before the 5-minute nonce TTL cleanup runs. After nonce cleanup, any replay attempt would fail the timestamp check. The two defenses overlap — the nonce covers the first 60 seconds, the timestamp covers everything after. No test needed.
+
 ### Attack 3.4 — Parallel duplicate nonce submission
 
 **What we try:** Send two requests with the same nonce at the exact same time (concurrent).
