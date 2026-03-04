@@ -308,6 +308,8 @@ All 56 tests should pass.
 53. ✅ MIT License: added LICENSE file (MIT, 2025, James Toole) — repo is now legally open source
 54. ✅ GitHub Actions CI: .github/workflows/ci.yml runs npm ci and npm test on every push and PR to main, green checkmark on repo
 55. ✅ SSH authentication for GitHub: Ed25519 SSH key linked to GitHub account, remote switched from HTTPS to SSH, resolves workflow scope permission issue with PAT
+56. ✅ Manifesto published: "The AgentGate Manifesto — Why AI Agents Need Skin in the Game" written and published to Hacker News, framing the economic accountability thesis for a public audience
+57. ✅ Personal process template formalized: internal development playbook captured as a standalone document (not included in repo — private reference only)
 
 ---
 
