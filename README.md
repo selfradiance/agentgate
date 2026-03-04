@@ -275,6 +275,8 @@ Returns `200 OK` with `{ "status": "ok", "timestamp": "<ISO>" }`. No authenticat
 
 AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (local) or https://agentgate.run/dashboard (remote). Server must be running. It shows a summary bar with identity/bond/action counts, per-identity reputation scores with color coding, and tables for all bonds, actions, and identities with status indicators. The page auto-refreshes every 5 seconds.
 
+> **Note:** The live demo at agentgate.run (including the dashboard and MCP endpoint) is hosted on a DigitalOcean droplet with a Namecheap domain, both paid through approximately March 2027. After that date, these URLs may no longer be active. The project runs fully on localhost — see the "Running Locally" section to try it yourself.
+
 ---
 
 ## Running Locally
