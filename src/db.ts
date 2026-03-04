@@ -73,6 +73,16 @@ export function createDatabase(filename: string): DatabaseHandle {
       PRIMARY KEY (nonce, identity_id),
       FOREIGN KEY(identity_id) REFERENCES identities(id)
     );
+
+    CREATE TABLE IF NOT EXISTS markets (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      resolution_deadline TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      outcome TEXT,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
   `);
 
   // Migration: add agent_name column to existing databases that predate it

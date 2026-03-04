@@ -46,3 +46,13 @@ export interface IdentityStats {
   failures: number;
   malicious: number;
 }
+
+export interface MarketRecord {
+  id: string;
+  question: string;
+  resolution_deadline: string;
+  status: 'open' | 'resolved';
+  outcome: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}

@@ -349,4 +349,17 @@ export class AgentAdapter {
       ...(details ? { details } : {})
     });
   }
+
+  async createMarket(question: string, resolutionDeadline: string) {
+    return this.signedRequest("POST", "/markets", {
+      question,
+      resolutionDeadline
+    });
+  }
+
+  async resolveMarket(marketId: string, outcome: "yes" | "no") {
+    return this.signedRequest("POST", `/markets/${marketId}/resolve`, {
+      outcome
+    });
+  }
 }

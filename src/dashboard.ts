@@ -1,6 +1,6 @@
 import type { AppInstance } from "./app";
 import { scoreIdentity } from "./reputation";
-import type { IdentityRecord, BondRecord, ActionRecord } from "./types";
+import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord } from "./types";
 
 const ID_COLS = new Set(["id", "identity_id", "bond_id", "action_id"]);
 
@@ -14,6 +14,7 @@ const STATUS_COLORS: Record<string, string> = {
   banned:    "background:#6a2d2d",
   open:      "background:#6a5f2d",
   occupied:  "background:#6a5f2d",
+  resolved:  "background:#2d6a4f",
 };
 
 function truncateId(val: string): string {
@@ -72,7 +73,7 @@ function buildTable(rows: unknown[]): string {
   return `<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function buildSummaryBar(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[] }): string {
+function buildSummaryBar(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[]; markets: unknown[] }): string {
   const activeBonds = (data.bonds as Array<Record<string, unknown>>).filter(
     (b) => b["status"] === "active" || b["status"] === "occupied"
   ).length;
@@ -82,6 +83,7 @@ function buildSummaryBar(data: { identities: unknown[]; bonds: unknown[]; action
     ["Bonds", data.bonds.length],
     ["Active Bonds", activeBonds],
     ["Actions", data.actions.length],
+    ["Markets", data.markets.length],
   ];
 
   const items = stats
@@ -94,7 +96,7 @@ function buildSummaryBar(data: { identities: unknown[]; bonds: unknown[]; action
   return `<div class="summary">${items}</div>`;
 }
 
-function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[] }): string {
+function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[]; markets: unknown[] }): string {
   const identities = data.identities as IdentityRecord[];
   const bonds = data.bonds as BondRecord[];
   const actions = data.actions as ActionRecord[];
@@ -137,7 +139,7 @@ function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; a
   </table>`;
 }
 
-function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[] }): string {
+function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unknown[]; markets: unknown[] }): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -233,6 +235,11 @@ function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unk
   <section>
     <h2>Actions (${data.actions.length})</h2>
     ${buildTable(data.actions)}
+  </section>
+
+  <section>
+    <h2>Markets (${data.markets.length})</h2>
+    ${buildTable(data.markets)}
   </section>
 
   <section>

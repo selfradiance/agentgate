@@ -38,6 +38,15 @@ export const unbanIdentitySchema = z.object({
   publicKey: z.string().trim().min(1, "publicKey is required")
 });
 
+export const createMarketSchema = z.object({
+  question: z.string().trim().min(1, "question is required").max(500),
+  resolutionDeadline: z.string().trim().min(1, "resolutionDeadline is required")
+});
+
+export const resolveMarketSchema = z.object({
+  outcome: z.enum(["yes", "no"])
+});
+
 export type CreateIdentityInput = z.infer<typeof createIdentitySchema>;
 export type LockBondInput = z.infer<typeof lockBondSchema>;
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>;

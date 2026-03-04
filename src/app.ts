@@ -7,9 +7,11 @@ import { createLogger, generateRequestId } from "./logger";
 import {
   banIdentitySchema,
   createIdentitySchema,
+  createMarketSchema,
   executeActionSchema,
   lockBondSchema,
   resolveActionSchema,
+  resolveMarketSchema,
   unbanIdentitySchema
 } from "./schemas";
 import { isFreshTimestamp, verifyRequestSignature } from "./signing";
@@ -237,6 +239,19 @@ export function createApp(options: AppOptions = {}): AppInstance {
       throw new AppError(404, "IDENTITY_NOT_FOUND", "Identity not found");
     }
     reply.send({ status: "active" });
+  });
+
+  app.post("/markets", async (req, reply) => {
+    const body = createMarketSchema.parse(req.body);
+    const result = service.createMarket(body);
+    return reply.code(201).send(result);
+  });
+
+  app.post("/markets/:marketId/resolve", async (req, reply) => {
+    const { marketId } = req.params as { marketId: string };
+    const body = resolveMarketSchema.parse(req.body);
+    const result = service.resolveMarket(marketId, body.outcome);
+    return reply.code(200).send(result);
   });
 
   app.get("/health", async (_request, reply) => {

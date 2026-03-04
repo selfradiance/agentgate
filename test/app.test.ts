@@ -321,7 +321,7 @@ describe("IBP state transitions", () => {
 
     const { identityId, signer } = await createIdentity(app);
 
-    const bondId = await lockBond(app, identityId, 1200, "single use bond");
+    const bondId = await lockBond(app, identityId, 1200, "released bond");
 
     const firstActionBody = {
       identityId,
@@ -330,7 +330,16 @@ describe("IBP state transitions", () => {
       bondId
     };
 
-    await executeSignedAction(app, signer, firstActionBody);
+    const firstActionId = (await executeSignedAction(app, signer, firstActionBody)).json().actionId as string;
+
+    // Resolve the action as success — bond becomes released
+    const resolveBody = { outcome: "success" as const };
+    await app.inject({
+      method: "POST",
+      url: `/v1/actions/${firstActionId}/resolve`,
+      payload: resolveBody,
+      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+    });
 
     const secondActionBody = {
       identityId,

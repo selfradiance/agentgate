@@ -29,6 +29,16 @@ const getReputationSchema = z.object({
   identityId: z.string()
 });
 
+const createMarketMcpSchema = z.object({
+  question: z.string(),
+  resolution_deadline: z.string()
+});
+
+const resolveMarketMcpSchema = z.object({
+  marketId: z.string(),
+  outcome: z.enum(["yes", "no"])
+});
+
 // ---- Server factory ----
 export function createMcpServer(adapter: AgentAdapter): Server {
   const server = new Server(
@@ -64,6 +74,16 @@ export function createMcpServer(adapter: AgentAdapter): Server {
           name: "create_identity",
           description: "Create or load the agent identity. Called automatically by other tools, but can be called explicitly.",
           inputSchema: z.object({})
+        },
+        {
+          name: "create_market",
+          description: "Create a prediction market with a yes/no question and a resolution deadline (ISO timestamp).",
+          inputSchema: createMarketMcpSchema
+        },
+        {
+          name: "resolve_market",
+          description: "Resolve an open prediction market as 'yes' or 'no'. Settles all positions automatically.",
+          inputSchema: resolveMarketMcpSchema
         }
       ]
     };
@@ -114,6 +134,20 @@ export function createMcpServer(adapter: AgentAdapter): Server {
 
       if (toolName === "create_identity") {
         const result = await adapter.createIdentity();
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "create_market") {
+        const input = createMarketMcpSchema.parse(args);
+        const result = await adapter.createMarket(input.question, input.resolution_deadline);
+        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      if (toolName === "resolve_market") {
+        const input = resolveMarketMcpSchema.parse(args);
+        const result = await adapter.resolveMarket(input.marketId, input.outcome);
         logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }

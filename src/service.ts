@@ -9,6 +9,7 @@ import type {
   BondStatus,
   IdentityRecord,
   IdentityStats,
+  MarketRecord,
   ResolveOutcome
 } from "./types";
 import type {
@@ -354,7 +355,83 @@ export class IbpService {
     const identities = this.db.prepare(`SELECT * FROM identities`).all();
     const bonds = this.db.prepare(`SELECT * FROM bonds`).all();
     const actions = this.db.prepare(`SELECT * FROM actions`).all();
-    return { identities, bonds, actions };
+    const markets = this.db.prepare(`SELECT * FROM markets`).all();
+    return { identities, bonds, actions, markets };
+  }
+
+  createMarket(input: { question: string; resolutionDeadline: string }) {
+    const id = `market_${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO markets (id, question, resolution_deadline, status, outcome, created_at)
+         VALUES (@id, @question, @resolution_deadline, 'open', NULL, @created_at)`
+      )
+      .run({
+        id,
+        question: input.question,
+        resolution_deadline: input.resolutionDeadline,
+        created_at: createdAt
+      });
+
+    return { marketId: id, status: 'open' as const };
+  }
+
+  resolveMarket(marketId: string, outcome: 'yes' | 'no') {
+    const market = this.db
+      .prepare(`SELECT * FROM markets WHERE id = ?`)
+      .get(marketId) as MarketRecord | undefined;
+
+    if (!market) {
+      throw new AppError(404, "MARKET_NOT_FOUND", "Market not found");
+    }
+
+    if (market.status !== 'open') {
+      throw new AppError(409, "MARKET_ALREADY_RESOLVED", "Market has already been resolved");
+    }
+
+    const resolvedAt = new Date().toISOString();
+
+    // Mark the market as resolved
+    this.db
+      .prepare(
+        `UPDATE markets SET status = 'resolved', outcome = @outcome, resolved_at = @resolved_at WHERE id = @id`
+      )
+      .run({ id: marketId, outcome, resolved_at: resolvedAt });
+
+    // Find all open actions linked to this market
+    const positions = this.db
+      .prepare(
+        `SELECT * FROM actions WHERE action_type = 'market.position' AND status = 'open'`
+      )
+      .all() as ActionRecord[];
+
+    const marketPositions = positions.filter((a) => {
+      try {
+        const payload = JSON.parse(a.payload ?? '{}');
+        return payload.marketId === marketId;
+      } catch {
+        return false;
+      }
+    });
+
+    let settledCount = 0;
+
+    for (const position of marketPositions) {
+      const payload = JSON.parse(position.payload ?? '{}');
+      const side = payload.side as string;
+      const positionOutcome = side === outcome ? 'success' : 'failed';
+
+      try {
+        this.resolveAction(position.id, { outcome: positionOutcome });
+        settledCount++;
+      } catch {
+        // Action may have already been resolved — skip
+      }
+    }
+
+    return { marketId, outcome, settledCount };
   }
 
   getIdentityPublicKey(identityId: string) {
@@ -446,7 +523,7 @@ export class IbpService {
       throw new AppError(409, "BOND_IDENTITY_MISMATCH", "Bond does not belong to the supplied identity");
     }
 
-    if (bond.status !== "active") {
+    if (bond.status !== "active" && bond.status !== "occupied") {
       throw new AppError(409, "BOND_NOT_ACTIVE", "Bond is not active");
     }
 
