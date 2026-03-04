@@ -290,6 +290,7 @@ All 48 tests should pass.
 47. ✅ Red team Phase 4: SQLite concurrency — 2 attack tests (50 parallel executes, parallel resolve+execute), better-sqlite3 serialization confirmed sound
 48. ✅ Red team Phase 5: outbound HTTP — 9 attack tests (IPv6, encoded IPs, non-HTTP schemes, redirect targets), found and fixed redirect bypass SSRF vulnerability and IPv6 bracket allowlist bug
 49. ✅ Red team plan document added at docs/red-team-plan.md — 20 attack scenarios across 5 phases
+50. ✅ v0.2.0 tagged and pushed — Security & Adversarial Hardening release, 48 tests across 5 red team phases, 3 bugs fixed, 1 SSRF vulnerability closed
 
 ---
 
@@ -302,7 +303,7 @@ All 48 tests should pass.
 
 ## Next Steps (in priority order)
 
-- Tag v0.2.0 — all red team phases complete, update README, update threat model with findings
+*(No items currently — all planned milestones complete)*
 
 ---
 ---
