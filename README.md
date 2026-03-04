@@ -164,14 +164,15 @@ Multiple actions per bond are supported.
 - Timeout (default 2500ms)
 - Max request size
 - Max response size
-- Errors wrapped as DESTINATION_BLOCKED
+- **Redirect protection** — `fetch` is called with `redirect: "manual"`; every redirect hop has its `Location` header re-checked against the allowlist before following (max 5 hops). Prevents an allowlisted host from acting as a trampoline to a non-allowlisted host.
+- Errors wrapped as DESTINATION_BLOCKED or REDIRECT_BLOCKED
 
 Environment variables:
 
 - AGENTGATE_HTTP_ALLOWLIST
 - AGENTGATE_HTTP_TIMEOUT_MS
 - AGENTGATE_HTTP_MAX_BODY_BYTES
-- AGENTGATE_HTTP_MAX_RESPONSE_BYTES
+- AGENTGATE_MAX_RESPONSE_BYTES
 
 ---
 
@@ -308,6 +309,28 @@ Each entry includes relevant context: `identityId` (truncated), `endpoint`, `rea
 
 ---
 
+## Security Hardening
+
+AgentGate v0.2.0 was put through a structured red team process before release: 20 adversarial attack scenarios written as automated tests across 5 phases.
+
+**Invariant validator** — every attack test ends by calling `validateInvariants(db)`, which runs 8 SQL assertions against the live database: bond amounts never go negative, outstanding exposure never exceeds bond capacity, settlement is always consistent, and nonces are never duplicated. Any state corruption — however subtle — causes an immediate test failure with a precise diagnostic.
+
+**Attack phases:**
+
+| Phase | Focus | Tests | Findings |
+|---|---|---|---|
+| 1 | Bond/exposure math | 6 | Fixed: `slashed_cents` not written to DB on malicious resolution; negative `exposure_cents` bypassed service-layer guard |
+| 2 | Sweeper edge cases | 3 | Confirmed: resolve/sweep race is safe (SQLite serialization); double-slash prevented by open-action query |
+| 3 | Replay attacks | 4 | Confirmed: nonce check catches replays even within the 60-second timestamp window; parallel duplicate nonce via `Promise.all` safely rejected |
+| 4 | SQLite concurrency | 2 | Confirmed: `better-sqlite3` synchronous transactions serialize concurrent requests correctly |
+| 5 | Outbound HTTP | 9 | Fixed: redirect bypass SSRF (allowlisted host could 302 to non-allowlisted target); IPv6 bracket allowlist bug (`[::1]` vs `::1`) |
+
+**Total: 3 logic bugs fixed, 1 SSRF vulnerability fixed, 48 tests passing.**
+
+Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan.md).
+
+---
+
 ## Remote Deployment
 
 AgentGate is deployed to a DigitalOcean droplet (Ubuntu 24.04) at [agentgate.run](https://agentgate.run).
@@ -349,6 +372,6 @@ npm run example:toy-agent
 * `src/mcp/` — MCP server exposing 5 tools for Claude Desktop integration
 * `src/agent-adapter.ts` — clean agent-facing interface that hides signing and HTTP details
 * `src/dashboard.ts` — real-time HTML dashboard
-* `test/` — test suite (21 tests)
+* `test/` — test suite (48 tests, including red team adversarial suite)
 * `examples/` — demo agents and adapter demo
 * `docs/` — threat model and design docs

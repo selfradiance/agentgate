@@ -1,6 +1,6 @@
 # AgentGate — Project Context for Claude
 
-**Last updated:** 2026-03-03 (Session 10)
+**Last updated:** 2026-03-03 (Session 11)
 **Owner:** James Toole
 **Repo:** https://github.com/selfradiance/agentgate
 **Local folder:** ~/Desktop/agentgate
@@ -76,6 +76,7 @@ The core insight: as AI agents reduce the marginal cost of sending bids, API cal
 | test/app.test.ts | Comprehensive HTTP API + nonce replay protection test suite |
 | test/mcp-integration.test.ts | End-to-end MCP integration test (all 5 tools) |
 | test/sweeper.test.ts | Sweeper tests for expired action auto-slashing |
+| test/red-team.test.ts | Red team adversarial test suite — invariant validator + 20 attack scenarios across 5 phases (bond math, sweeper, replay, concurrency, outbound HTTP) |
 | docs/threat-model.md | Threat model — attacks, defenses, non-goals, assumptions |
 | docs/roadmap/day1-integration-surface.md | Integration surface design doc |
 | AGENTS.md | Conventions for AI coding agents |
@@ -234,7 +235,7 @@ The AgentGate HTTP server (npm run restart) MUST be running for MCP tools to wor
 ### Run tests:
 npm run test
 
-All 21 tests should pass.
+All 48 tests should pass.
 
 ---
 
@@ -282,6 +283,13 @@ All 21 tests should pass.
 40. ✅ UptimeRobot uptime monitoring: free external monitor checking https://agentgate.run/health every 5 minutes, emails on downtime
 41. ✅ Structured security event logging: all security-relevant events (auth_failed, duplicate_nonce, signature_failed, bond_slashed, outbound_blocked) now logged with clear event fields and context via the structured logger; logger.ts extended to accept optional metadata object
 42. ✅ SSH key authentication: Ed25519 SSH key set up on local Mac and copied to DigitalOcean server — passwordless deploys via ssh root@174.138.63.42
+43. ✅ Red team Phase 0: invariant validator — validateInvariants(db) checks 8 database invariants (bond amounts, exposure accounting, settlement consistency, nonce uniqueness), exported from test/red-team.test.ts, used as backbone for all adversarial tests
+44. ✅ Red team Phase 1: bond/exposure math — 6 attack tests (over-commit, rapid cycles, double-resolve, burned bond, zero/negative exposure, overflow), found and fixed slashed_cents persistence bug and negative exposure gap
+45. ✅ Red team Phase 2: sweeper edge cases — 3 attack tests (resolve race, double-slash, expired bond execute), sweeper logic confirmed solid
+46. ✅ Red team Phase 3: replay attacks — 3 attack tests (exact duplicate, in-window replay, parallel nonce), Attack 3.3 documented as safe by design (timestamp window closes before nonce TTL cleanup)
+47. ✅ Red team Phase 4: SQLite concurrency — 2 attack tests (50 parallel executes, parallel resolve+execute), better-sqlite3 serialization confirmed sound
+48. ✅ Red team Phase 5: outbound HTTP — 9 attack tests (IPv6, encoded IPs, non-HTTP schemes, redirect targets), found and fixed redirect bypass SSRF vulnerability and IPv6 bracket allowlist bug
+49. ✅ Red team plan document added at docs/red-team-plan.md — 20 attack scenarios across 5 phases
 
 ---
 
@@ -289,12 +297,12 @@ All 21 tests should pass.
 
 - **Single-instance only** — SQLite + in-memory assumptions break under multiple Node processes
 - **No identity revocation** — malicious identities can't be banned, only economically penalized (documented in threat model)
-- **Ghost server processes** — old tsx processes can linger on port 3000; use npm run restart to avoid this
+
 ---
 
 ## Next Steps (in priority order)
 
-*(No items currently — all planned milestones complete)*
+- Tag v0.2.0 — all red team phases complete, update README, update threat model with findings
 
 ---
 ---
