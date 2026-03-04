@@ -751,6 +751,68 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
   });
 });
 
+describe("Attack 2.3 — expiry during execution", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    vi.useRealTimers();
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  it("rejects executeAction against an expired bond and records no action", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
+
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 1,
+      reason: "attack-2.3",
+    });
+
+    // Advance time 2 seconds past the 1-second TTL
+    vi.setSystemTime(new Date("2026-03-04T12:00:02.000Z"));
+
+    // Execute against the now-expired bond — must be rejected
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-2.3",
+        exposure_cents: 100,
+      })
+    ).rejects.toMatchObject({ code: "BOND_EXPIRED" });
+
+    // No action should have been recorded
+    const actions = handle.db
+      .prepare(`SELECT id FROM actions WHERE bond_id = ?`)
+      .all(bondId) as Array<{ id: string }>;
+    expect(actions).toHaveLength(0);
+
+    // Bond status must be 'expired' — assertBondCanBackAction marks it on detection
+    const bond = handle.db
+      .prepare(`SELECT status, outstanding_exposure_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; outstanding_exposure_cents: number };
+    expect(bond.status).toBe("expired");
+    expect(bond.outstanding_exposure_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
