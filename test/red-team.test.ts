@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { generateKeyPairSync } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabaseHandle } from "../src/db";
 import { IbpService } from "../src/service";
 
@@ -553,6 +553,127 @@ describe("Attack 1.6 — extremely large exposure value", () => {
       .get(bondId) as { status: string; outstanding_exposure_cents: number };
     expect(bond.status).toBe("active");
     expect(bond.outstanding_exposure_cents).toBe(0);
+
+    validateInvariants(handle.db);
+  });
+});
+
+describe("Attack 2.1 — sweeper runs during active resolve", () => {
+  const handles: DatabaseHandle[] = [];
+
+  afterEach(() => {
+    vi.useRealTimers();
+    while (handles.length > 0) {
+      handles.pop()?.close();
+    }
+  });
+
+  function buildDb(): DatabaseHandle {
+    const handle = createDatabase(":memory:");
+    handles.push(handle);
+    return handle;
+  }
+
+  // Ordering A: resolveAction (success) runs first, then the sweeper.
+  // The sweeper should find the action already settled and do nothing.
+  // Final state: bond = 'released', action = 'success'.
+  it("resolve-then-sweep: action is settled as success; sweeper finds nothing to slash", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
+
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 1,
+      reason: "attack-2.1-a",
+    });
+
+    const { actionId } = await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-2.1-a",
+      exposure_cents: 500,
+    });
+
+    // Advance time past the 1-second TTL so the sweeper would target this action
+    vi.setSystemTime(new Date("2026-03-04T12:00:02.000Z"));
+
+    // Resolve wins the race
+    service.resolveAction(actionId, { outcome: "success" });
+
+    // Sweeper runs after — must find no open expired actions
+    const { slashedCount } = service.sweepExpiredActions();
+    expect(slashedCount).toBe(0);
+
+    // Bond and action must reflect the success resolution, not a slash
+    const bond = handle.db
+      .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; slashed_cents: number };
+    expect(bond.status).toBe("released");
+    expect(bond.slashed_cents).toBe(0);
+
+    const action = handle.db
+      .prepare(`SELECT status FROM actions WHERE id = ?`)
+      .get(actionId) as { status: string };
+    expect(action.status).toBe("success");
+
+    validateInvariants(handle.db);
+  });
+
+  // Ordering B: sweeper runs first, then resolveAction (success) is attempted.
+  // The sweeper slashes the action; the subsequent resolve must be rejected.
+  // Final state: bond = 'slashed', action = 'malicious'.
+  it("sweep-then-resolve: sweeper slashes first; subsequent resolve is rejected as already-settled", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
+
+    const handle = buildDb();
+    const service = new IbpService(handle.db);
+
+    const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
+    const { bondId } = service.lockBond({
+      identityId,
+      amountCents: 1000,
+      currency: "USD",
+      ttlSeconds: 1,
+      reason: "attack-2.1-b",
+    });
+
+    const { actionId } = await service.executeAction({
+      identityId,
+      bondId,
+      actionType: "attack-2.1-b",
+      exposure_cents: 500,
+    });
+
+    // Advance time past the 1-second TTL
+    vi.setSystemTime(new Date("2026-03-04T12:00:02.000Z"));
+
+    // Sweeper wins the race
+    const { slashedCount } = service.sweepExpiredActions();
+    expect(slashedCount).toBe(1);
+
+    // Subsequent resolve attempt must be rejected — action is already settled
+    expect(() =>
+      service.resolveAction(actionId, { outcome: "success" })
+    ).toThrow();
+
+    // Bond and action must reflect the slash, not the attempted success resolve
+    const bond = handle.db
+      .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
+      .get(bondId) as { status: string; slashed_cents: number };
+    expect(bond.status).toBe("slashed");
+    expect(bond.slashed_cents).toBeGreaterThan(0);
+
+    const action = handle.db
+      .prepare(`SELECT status FROM actions WHERE id = ?`)
+      .get(actionId) as { status: string };
+    expect(action.status).toBe("malicious");
 
     validateInvariants(handle.db);
   });
