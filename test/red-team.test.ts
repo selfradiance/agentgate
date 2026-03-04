@@ -1126,6 +1126,88 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
   });
 });
 
+describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
+  const apps: AppInstance[] = [];
+
+  afterEach(async () => {
+    while (apps.length > 0) {
+      await apps.pop()?.close();
+    }
+  });
+
+  async function buildApp(): Promise<AppInstance> {
+    const app = createApp({ dbPath: ":memory:" });
+    apps.push(app);
+    await app.ready();
+    return app;
+  }
+
+  it("leaves the bond in a consistent state after concurrent resolve and execute", async () => {
+    const app = await buildApp();
+    const { privateKey, publicKey } = createSigner();
+
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { "x-nonce": randomUUID() },
+      payload: { publicKey }
+    });
+    const { identityId } = identityResponse.json() as { identityId: string };
+
+    const bondResponse = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { "x-nonce": randomUUID() },
+      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" }
+    });
+    const { bondId } = bondResponse.json() as { bondId: string };
+
+    // Execute action A — bond transitions active → occupied
+    const actionABody = { identityId, bondId, actionType: "attack-4.2-A", exposure_cents: 500 };
+    const actionAResponse = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionABody,
+      headers: { ...signHeaders(privateKey, actionABody), "x-nonce": randomUUID() }
+    });
+    expect(actionAResponse.statusCode).toBe(201);
+    const { actionId } = actionAResponse.json() as { actionId: string };
+
+    // In parallel: resolve action A (success) + attempt to execute action B on the same bond.
+    // By the time Promise.all fires, action A is committed and the bond is 'occupied'.
+    // Execute B will fail with BOND_NOT_ACTIVE (occupied → released, never back to active).
+    // The interesting assertion is that resolve A succeeds cleanly and the final exposure
+    // accounting is correct regardless of how the event loop interleaves the two handlers.
+    const resolveBody = { outcome: "success" as const };
+    const actionBBody = { identityId, bondId, actionType: "attack-4.2-B", exposure_cents: 200 };
+
+    const [resolveResponse, executeBResponse] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/actions/${actionId}/resolve`,
+        payload: resolveBody,
+        headers: { ...signHeaders(privateKey, resolveBody), "x-nonce": randomUUID() }
+      }),
+      app.inject({
+        method: "POST",
+        url: "/v1/actions/execute",
+        payload: actionBBody,
+        headers: { ...signHeaders(privateKey, actionBBody), "x-nonce": randomUUID() }
+      }),
+    ]);
+
+    // Resolve must succeed — action A was open and nothing can double-settle it here
+    expect(resolveResponse.statusCode).toBe(200);
+
+    // Execute B must be rejected — the bond is occupied or released, never active
+    expect(executeBResponse.statusCode).not.toBe(201);
+    expect(executeBResponse.statusCode).not.toBe(500);
+
+    // The core assertion: exposure accounting must be correct in all orderings
+    validateInvariants(app.db);
+  });
+});
+
 describe("validateInvariants", () => {
   const handles: DatabaseHandle[] = [];
 
