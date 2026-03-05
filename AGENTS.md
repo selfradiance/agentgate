@@ -61,3 +61,15 @@ If verification fails, stop and fix before proceeding.
 - Never give more than ONE step at a time.
 - After giving a single step, STOP and wait for the user to say "done".
 - Do not provide future steps, and do not include multi-step lists.
+
+## Files That Must Never Be Committed
+
+The following file types are private and must be listed in .gitignore from the first commit:
+
+- `*_PROJECT_CONTEXT.md` (e.g., AGENTGATE_PROJECT_CONTEXT.md) — private session context
+- Build logs (e.g., marketgate_build_log.md) — internal development notes
+- `AGENT_OPERATING_CONTRACT.md` — private working agreement
+- `process-template*.md` — personal development playbook
+- `agent-identity*.json` — contain private keys
+
+If any of these files exist but are not in .gitignore, add them immediately before making any other changes. If any have already been committed, remove them from tracking with `git rm --cached` before proceeding.
