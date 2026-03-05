@@ -8,3 +8,8 @@ coverage/
 .DS_Store
 agent-identity*.json
 .env
+
+# Private context and config files
+AGENTGATE_PROJECT_CONTEXT.md
+marketgate_build_log.md
+claude.md
