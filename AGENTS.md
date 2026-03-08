@@ -62,6 +62,26 @@ If verification fails, stop and fix before proceeding.
 - After giving a single step, STOP and wait for the user to say "done".
 - Do not provide future steps, and do not include multi-step lists.
 
+## Process Template v3 Requirements
+
+The project context file must include three sections:
+
+### Assumptions & Unknowns
+- What we know for sure
+- What we're assuming without proof
+- What we don't know yet
+- What would break this design if it turned out to be wrong
+
+### Confidence Tags
+Tag milestones and claims with one of: Idea (sounds right, haven't tested), Prototype (built it, works in demo path), Tested (tests exist and pass), Production (deployed, hardened, verified from outside), Security-verified (red-teamed and survived).
+
+### Decision Log
+For each significant decision: what was decided, why, what was rejected, what would cause reconsideration.
+
+## Before Starting Any New Feature or Phase (Part 1C)
+
+Before writing any code, define: what we're building, what problem it solves, what the smallest version is, and what's out of scope. No code until this is written down.
+
 ## Files That Must Never Be Committed
 
 The following file types are private and must be listed in .gitignore from the first commit:
