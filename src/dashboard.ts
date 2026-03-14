@@ -2,6 +2,15 @@ import type { AppInstance } from "./app";
 import { scoreIdentity } from "./reputation";
 import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord } from "./types";
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 const ID_COLS = new Set(["id", "identity_id", "bond_id", "action_id"]);
 
 const STATUS_COLORS: Record<string, string> = {
@@ -30,28 +39,27 @@ function renderCell(col: string, val: unknown): string {
   const raw = val === null || val === undefined ? "" : String(val);
 
   if (ID_COLS.has(col) && raw.length > 0) {
-    const display = truncateId(raw);
-    return `<td title="${raw}">${display}</td>`;
+    const display = escapeHtml(truncateId(raw));
+    return `<td title="${escapeHtml(raw)}">${display}</td>`;
   }
 
   if (col === "status" && raw.length > 0) {
     const style = STATUS_COLORS[raw] ?? "background:#3a3a3a";
-    return `<td style="${style};color:#eee;font-weight:bold">${raw}</td>`;
+    return `<td style="${style};color:#eee;font-weight:bold">${escapeHtml(raw)}</td>`;
   }
 
   if (col === "payload" && raw.length > 60) {
-    const display = raw.slice(0, 60) + "…";
-    const escaped = raw.replace(/"/g, "&quot;");
-    return `<td title="${escaped}">${display}</td>`;
+    const display = escapeHtml(raw.slice(0, 60) + "…");
+    return `<td title="${escapeHtml(raw)}">${display}</td>`;
   }
 
   if (col === "agent_name") {
     return raw.length > 0
-      ? `<td>${raw}</td>`
+      ? `<td>${escapeHtml(raw)}</td>`
       : `<td style="color:#555;font-style:italic">default</td>`;
   }
 
-  return `<td>${raw}</td>`;
+  return `<td>${escapeHtml(raw)}</td>`;
 }
 
 function buildTable(rows: unknown[]): string {
@@ -115,21 +123,21 @@ function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; a
     };
     const score = scoreIdentity(stats);
     const scoreColor = score > 0 ? "background:#2d6a4f" : score < 0 ? "background:#6a2d2d" : "background:#3a3a3a";
-    const idDisplay = truncateId(identity.id);
-    const pkDisplay = identity.public_key.slice(0, 12) + "…";
+    const idDisplay = escapeHtml(truncateId(identity.id));
+    const pkDisplay = escapeHtml(identity.public_key.slice(0, 12) + "…");
     const bannedTag = identity.status === "banned"
       ? ` <span style="color:#ff6b6b;font-weight:bold">[BANNED]</span>`
       : "";
     const agentCell = identity.agent_name
-      ? `<td>${identity.agent_name}${bannedTag}</td>`
+      ? `<td>${escapeHtml(identity.agent_name)}${bannedTag}</td>`
       : `<td style="color:#555;font-style:italic">default${bannedTag}</td>`;
 
     return `<tr>
-      <td title="${identity.id}">${idDisplay}</td>
+      <td title="${escapeHtml(identity.id)}">${idDisplay}</td>
       ${agentCell}
-      <td title="${identity.public_key}">${pkDisplay}</td>
+      <td title="${escapeHtml(identity.public_key)}">${pkDisplay}</td>
       <td style="${scoreColor};color:#eee;font-weight:bold;text-align:center">${score}</td>
-      <td>${identity.created_at}</td>
+      <td>${escapeHtml(String(identity.created_at))}</td>
     </tr>`;
   });
 
