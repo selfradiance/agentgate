@@ -436,6 +436,34 @@ describe("IBP state transitions", () => {
     });
   });
 
+  it("rejects future-dated action signatures", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+
+    const bondId = await lockBond(app, identityId, 1000, "future signature");
+
+    const actionBody = {
+      identityId,
+      actionType: "future-action",
+      payload: { note: "future" },
+      bondId
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      payload: actionBody,
+      headers: { ...signHeaders(signer.privateKey, actionBody, `${Date.now() + 10_000}`), "x-nonce": randomUUID() }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: "INVALID_SIGNATURE",
+      message: "Signature timestamp is invalid"
+    });
+  });
+
   it("rate limits the 11th execute request within 60 seconds", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-02-27T12:00:00.000Z"));

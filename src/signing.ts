@@ -2,6 +2,7 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from "nod
 
 const ed25519PublicKeyLength = 32;
 const maxSignatureAgeMs = 60_000;
+const maxFutureToleranceMs = 5_000;
 const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function toBase64Url(buffer: Buffer) {
@@ -86,7 +87,8 @@ export function isFreshTimestamp(timestamp: string, now = Date.now()) {
     return false;
   }
 
-  return now - timestampMs <= maxSignatureAgeMs;
+  const drift = now - timestampMs;
+  return drift <= maxSignatureAgeMs && drift >= -maxFutureToleranceMs;
 }
 
 export function verifyRequestSignature(
