@@ -97,7 +97,7 @@ For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 
 - Ed25519 public key (raw 32-byte base64)
 - All state-changing endpoints require signed requests
-- Replay protection via timestamp validation (60-second window) AND nonce store (duplicate rejection per identity)
+- Replay protection via timestamp validation (60-second window, 5-second future tolerance) AND nonce store (duplicate rejection per identity)
 - Named agent support: set `AGENTGATE_AGENT_NAME` env var to create separate identity files per agent (e.g., `agent-identity-trader.json`)
 
 Signed message format: `sha256(timestamp + JSON.stringify(body))`
@@ -148,7 +148,7 @@ Environment variables: `AGENTGATE_HTTP_ALLOWLIST`, `AGENTGATE_HTTP_TIMEOUT_MS`, 
 
 AgentGate exposes its 7 tools to Claude Desktop over two transports:
 
-- **Streamable HTTP** (recommended) — Express server on port 3001 at `/mcp`. Claude Desktop connects via `mcp-remote`. Sessions are managed server-side.
+- **Streamable HTTP** (recommended) — Express server on port 3001 at `/mcp`. Claude Desktop connects via `mcp-remote`. Sessions are managed server-side with a 100-session cap, 1MB body size limit, and automatic cleanup of sessions idle for more than 5 minutes.
 - **stdio** — launches `src/mcp/server.ts` as a subprocess directly from Claude Desktop.
 
 Both transports require the AgentGate HTTP server (`npm run restart`) to be running.
@@ -273,7 +273,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-56 tests across 5 test suites (API, MCP integration, prediction markets, sweeper, red team).
+59 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
 
 ---
 
@@ -367,6 +367,14 @@ AgentGate v0.2.0 was put through a structured red team process before release: 2
 
 Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan.md).
 
+**Post-v0.2.0 hardening (Session 15):** A cold-eyes security audit identified additional issues that have since been fixed:
+
+- Timestamp validation now rejects future-dated timestamps (>5 seconds ahead) in addition to stale ones, closing a clock-skew attack vector
+- Dashboard HTML output is now XSS-safe — all database-backed values are escaped via `escapeHtml()` before interpolation
+- MCP HTTP server hardened with a 1MB body size limit, 100-session cap, and automatic cleanup of sessions idle for more than 5 minutes
+- Bond locking (`POST /v1/bonds/lock`) now requires Ed25519 signature verification, matching the auth model on all other state-changing endpoints
+- Fastify upgraded to 5.8.2
+
 ---
 
 ## Remote Deployment
@@ -408,7 +416,7 @@ pm2 stop agentgate       # stop the server
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (56 tests)
+- **Testing:** Vitest (59 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (runs on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
