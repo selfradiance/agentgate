@@ -25,9 +25,15 @@ Read the full story: **[How I Built AgentGate](docs/manifesto.md)**
 AgentGate works with any agent that can make HTTP requests. The flow is four steps: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
 
 **1. Register an identity**
+
+Identity registration requires proof-of-possession — the caller must sign the request with the private key matching the public key being registered. This uses the same signature headers as all other state-changing endpoints:
+
 ```bash
-curl -s http://127.0.0.1:3000/v1/identities/register \
+curl -s http://127.0.0.1:3000/v1/identities \
   -H 'content-type: application/json' \
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -H "x-nonce: $(uuidgen)" \
   -d '{ "publicKey": "<base64-encoded Ed25519 public key>" }'
 ```
 
@@ -35,10 +41,10 @@ Returns an `identityId` (e.g., `id_abc123`).
 
 **2. Lock a bond**
 
-All state-changing requests must be signed. Headers required on every request below:
+All state-changing requests must be signed. Headers required on every request:
 
 - `x-agentgate-timestamp` — current time in epoch milliseconds
-- `x-agentgate-signature` — Ed25519 signature over `sha256(timestamp + JSON.stringify(body))`
+- `x-agentgate-signature` — Ed25519 signature over `sha256(method + path + timestamp + JSON.stringify(body))`
 - `x-nonce` — a unique string per request (UUID recommended); the server rejects duplicates per identity, providing replay protection on top of the timestamp window
 
 ```bash
@@ -80,7 +86,7 @@ Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, 
 
 | Error | Cause | Fix |
 |---|---|---|
-| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(timestamp + JSON.stringify(body))` with the correct private key |
+| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(method + path + timestamp + JSON.stringify(body))` with the correct private key |
 | `TIMESTAMP_EXPIRED` | Timestamp is older than 60 seconds | Use a fresh timestamp for each request |
 | `DUPLICATE_NONCE` | Same nonce reused by the same identity | Generate a fresh UUID for every request |
 | `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
@@ -96,11 +102,11 @@ For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 ### Identity
 
 - Ed25519 public key (raw 32-byte base64)
-- All state-changing endpoints require signed requests
+- All state-changing endpoints require signed requests — including identity registration itself, which requires proof-of-possession (the caller must sign the request with the private key matching the public key being registered)
 - Replay protection via timestamp validation (60-second window, 5-second future tolerance) AND nonce store (duplicate rejection per identity)
 - Named agent support: set `AGENTGATE_AGENT_NAME` env var to create separate identity files per agent (e.g., `agent-identity-trader.json`)
 
-Signed message format: `sha256(timestamp + JSON.stringify(body))`
+Signed message format: `sha256(method + path + timestamp + JSON.stringify(body))`
 
 Required headers: `x-agentgate-timestamp`, `x-agentgate-signature`, `x-nonce`
 
