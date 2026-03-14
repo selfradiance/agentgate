@@ -90,6 +90,7 @@ export class IbpService {
     this.getIdentityOrThrow(input.identityId);
 
     const bond = this.getBondOrThrow(input.bondId);
+    this.assertBondCanBackAction(bond, input.identityId);
     const declaredExposureCents = input.exposure_cents;
     if (declaredExposureCents < 0) {
       throw new AppError(400, "INVALID_EXPOSURE", "exposure_cents cannot be negative");
@@ -102,7 +103,6 @@ export class IbpService {
         "Bond capacity exceeded for this action"
       );
     }
-    this.assertBondCanBackAction(bond, input.identityId);
 
     const id = `action_${randomUUID()}`;
     const nowMs = Date.now();
@@ -156,12 +156,14 @@ export class IbpService {
       const body = p?.body;
 
       if (!url || typeof url !== "string") {
+        this.rollbackFailedAction(id, input.bondId, effectiveExposureCents);
         throw new AppError(400, "VALIDATION_ERROR", "market.http payload.url is required");
       }
 
       try {
         result = await postJson(url, body);
       } catch (e: any) {
+        this.rollbackFailedAction(id, input.bondId, effectiveExposureCents);
         throw new AppError(400, "DESTINATION_BLOCKED", String(e?.message ?? e));
       }
 
@@ -210,19 +212,44 @@ export class IbpService {
           resolved_at: resolvedAt
         });
 
+      // Subtract this action's exposure (not zero the whole bond)
       this.db
         .prepare(
           `UPDATE bonds
-           SET status = @status,
-               outstanding_exposure_cents = 0,
+           SET outstanding_exposure_cents = outstanding_exposure_cents - @action_exposure,
                slashed_cents = slashed_cents + @slashed_cents
            WHERE id = @id`
         )
         .run({
           id: bond.id,
-          status: settlement.bondStatus,
+          action_exposure: action.exposure_cents,
           slashed_cents: settlement.slashedCents
         });
+
+      // For malicious outcomes, reduce the bond's amount by the slashed amount
+      if (settlement.slashedCents > 0) {
+        this.db
+          .prepare(
+            `UPDATE bonds
+             SET amount_cents = MAX(0, amount_cents - @slashed_cents)
+             WHERE id = @id`
+          )
+          .run({ id: bond.id, slashed_cents: settlement.slashedCents });
+      }
+
+      // Only change bond status when no other open actions remain on this bond
+      const { remaining } = this.db
+        .prepare(
+          `SELECT COUNT(*) AS remaining FROM actions
+           WHERE bond_id = @bond_id AND status = 'open'`
+        )
+        .get({ bond_id: bond.id }) as { remaining: number };
+
+      if (remaining === 0) {
+        this.db
+          .prepare(`UPDATE bonds SET status = @status WHERE id = @id`)
+          .run({ id: bond.id, status: settlement.bondStatus });
+      }
     });
 
     tx();
@@ -533,6 +560,38 @@ export class IbpService {
         .run(new Date().toISOString(), bond.id);
       throw new AppError(409, "BOND_EXPIRED", "Bond has expired");
     }
+  }
+
+  /**
+   * Rolls back a committed action that failed during outbound execution (market.http).
+   * Marks the action as "failed", subtracts its exposure from the bond, and restores
+   * the bond to "active" if no other open actions remain.
+   */
+  private rollbackFailedAction(actionId: string, bondId: string, exposureCents: number) {
+    const rollback = this.db.transaction(() => {
+      this.db
+        .prepare(`UPDATE actions SET status = 'failed', resolved_at = @resolved_at WHERE id = @id`)
+        .run({ id: actionId, resolved_at: new Date().toISOString() });
+
+      this.db
+        .prepare(
+          `UPDATE bonds
+           SET outstanding_exposure_cents = outstanding_exposure_cents - @action_exposure
+           WHERE id = @id`
+        )
+        .run({ id: bondId, action_exposure: exposureCents });
+
+      const { remaining } = this.db
+        .prepare(`SELECT COUNT(*) AS remaining FROM actions WHERE bond_id = @bond_id AND status = 'open'`)
+        .get({ bond_id: bondId }) as { remaining: number };
+
+      if (remaining === 0) {
+        this.db
+          .prepare(`UPDATE bonds SET status = 'active' WHERE id = @id`)
+          .run({ id: bondId });
+      }
+    });
+    rollback();
   }
 
   private assertExecuteRateLimit(identityId: string, nowMs: number) {

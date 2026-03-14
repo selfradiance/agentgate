@@ -635,6 +635,94 @@ describe("IBP state transitions", () => {
       message: "Minimum bond is 5000 cents for this identity's recent action volume"
     });
   });
+
+  it("multi-action bond accounting: resolving one action preserves other action's exposure", async () => {
+    const app = await buildApp();
+    const { identityId, signer } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 2000, "multi-action bond");
+
+    // Execute two actions against the same bond, each with exposure_cents: 500
+    const action1Body = { identityId, bondId, actionType: "multi-1", payload: { n: 1 }, exposure_cents: 500 };
+    const action1Id = (await executeSignedAction(app, signer, action1Body)).json().actionId as string;
+
+    const action2Body = { identityId, bondId, actionType: "multi-2", payload: { n: 2 }, exposure_cents: 500 };
+    const action2Id = (await executeSignedAction(app, signer, action2Body)).json().actionId as string;
+
+    // Both actions open — outstanding should be 1200 (600 + 600 from ceil(500 * 1.2))
+    const bondAfterBoth = app.db
+      .prepare("SELECT outstanding_exposure_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; status: string };
+    expect(bondAfterBoth.outstanding_exposure_cents).toBe(1200);
+    expect(bondAfterBoth.status).toBe("occupied");
+
+    // Resolve first action as success
+    const resolve1Body = { outcome: "success" as const };
+    await app.inject({
+      method: "POST",
+      url: `/v1/actions/${action1Id}/resolve`,
+      payload: resolve1Body,
+      headers: { ...signHeaders(signer.privateKey, resolve1Body), "x-nonce": randomUUID() }
+    });
+
+    // After resolving one: outstanding should be 600, status still "occupied"
+    const bondAfterFirst = app.db
+      .prepare("SELECT outstanding_exposure_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; status: string };
+    expect(bondAfterFirst.outstanding_exposure_cents).toBe(600);
+    expect(bondAfterFirst.status).toBe("occupied");
+
+    // Resolve second action as success
+    const resolve2Body = { outcome: "success" as const };
+    await app.inject({
+      method: "POST",
+      url: `/v1/actions/${action2Id}/resolve`,
+      payload: resolve2Body,
+      headers: { ...signHeaders(signer.privateKey, resolve2Body), "x-nonce": randomUUID() }
+    });
+
+    // After resolving both: outstanding should be 0, status "released"
+    const bondAfterSecond = app.db
+      .prepare("SELECT outstanding_exposure_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; status: string };
+    expect(bondAfterSecond.outstanding_exposure_cents).toBe(0);
+    expect(bondAfterSecond.status).toBe("released");
+  });
+
+  it("failed outbound HTTP cleans up action and releases bond exposure", async () => {
+    const app = await buildApp();
+    const { identityId, signer } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 1000, "outbound-fail-test");
+
+    // Execute a market.http action with a URL not on the allowlist
+    const actionBody = {
+      identityId,
+      bondId,
+      actionType: "market.http",
+      payload: { url: "https://evil.example.com/api", method: "POST", body: {} },
+      exposure_cents: 500
+    };
+    const response = await executeSignedAction(app, signer, actionBody);
+
+    // Should return an error
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe("DESTINATION_BLOCKED");
+
+    // Bond should be cleaned up — exposure back to 0, status back to "active"
+    const bond = app.db
+      .prepare("SELECT outstanding_exposure_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; status: string };
+    expect(bond.outstanding_exposure_cents).toBe(0);
+    expect(bond.status).toBe("active");
+
+    // The stranded action should be marked "failed", not "open"
+    const actions = app.db
+      .prepare("SELECT status FROM actions WHERE bond_id = ?")
+      .all(bondId) as Array<{ status: string }>;
+    expect(actions).toHaveLength(1);
+    expect(actions[0].status).toBe("failed");
+  });
 });
 
 describe("Identity Governance", () => {
