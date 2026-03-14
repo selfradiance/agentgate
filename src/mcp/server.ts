@@ -16,7 +16,11 @@ const lockBondSchema = z.object({
 const executeBondedActionSchema = z.object({
   bondId: z.string(),
   actionType: z.string(),
-  payload: z.preprocess((val) => typeof val === "string" ? JSON.parse(val) : val, z.record(z.string(), z.unknown())),
+  payload: z.preprocess((val) => {
+    if (typeof val !== "string") return val;
+    try { return JSON.parse(val); }
+    catch { throw new Error("Invalid payload: must be valid JSON"); }
+  }, z.record(z.string(), z.unknown())),
   exposure_cents: z.coerce.number().int().positive()
 });
 
