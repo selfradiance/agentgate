@@ -16,8 +16,9 @@ function createSigner() {
   return { privateKey, publicKey: fromBase64Url(jwk.x) };
 }
 
-function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, timestamp = Date.now().toString()) {
-  const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, url: string, timestamp = Date.now().toString()) {
+  const method = "POST";
+  const message = createHash("sha256").update(`${method}${url}${timestamp}${JSON.stringify(body)}`).digest();
   return {
     "x-agentgate-timestamp": timestamp,
     "x-agentgate-signature": sign(null, message, privateKey).toString("base64")
@@ -33,11 +34,12 @@ async function buildApp() {
 
 async function createIdentity(app: AppInstance) {
   const signer = createSigner();
+  const payload = { publicKey: signer.publicKey };
   const response = await app.inject({
     method: "POST",
     url: "/v1/identities",
-    headers: { "x-nonce": randomUUID() },
-    payload: { publicKey: signer.publicKey }
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities"), "x-nonce": randomUUID() },
+    payload
   });
   return { signer, identityId: response.json().identityId as string };
 }
@@ -47,7 +49,7 @@ async function lockBond(app: AppInstance, signer: { privateKey: KeyObject }, ide
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
-    headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": randomUUID() },
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
     payload
   })).json().bondId as string;
 }
@@ -74,7 +76,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: { ...signHeaders(signer.privateKey, actionBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, actionBody, "/v1/actions/execute"), "x-nonce": randomUUID() }
     });
     const actionId = executeResponse.json().actionId as string;
 
@@ -98,7 +100,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, `/v1/actions/${actionId}/resolve`), "x-nonce": randomUUID() }
     });
     expect(resolveResponse.statusCode).toBe(409);
     expect(resolveResponse.json().error).toBe("ACTION_ALREADY_RESOLVED");
@@ -117,7 +119,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: signHeaders(signer.privateKey, actionBody)
+      headers: signHeaders(signer.privateKey, actionBody, "/v1/actions/execute")
     });
 
     // Advance 30 seconds — well within the 3600-second TTL

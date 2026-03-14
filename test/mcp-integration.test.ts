@@ -117,7 +117,7 @@ describe("MCP end-to-end", () => {
     };
     expect(data.actionId).toBe(actionId);
     expect(data.outcome).toBe("success");
-    expect(data.refundCents).toBe(1000);
+    expect(data.refundCents).toBe(120); // ceil(100 × 1.2) = action exposure, not bond amount
     expect(data.burnedCents).toBe(0);
     expect(data.slashedCents).toBe(0);
   });

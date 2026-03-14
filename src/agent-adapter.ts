@@ -162,15 +162,21 @@ function isAlreadyExistsError(status: number, body: unknown) {
   return combined.includes("already exists") || combined.includes("duplicate");
 }
 
-async function registerIdentity(baseUrl: string, publicKey: string, agentName?: string): Promise<string> {
+async function registerIdentity(baseUrl: string, publicKey: string, privateKey: string, agentName?: string): Promise<string> {
   const url = new URL("/v1/identities", baseUrl);
+  const requestBody = { publicKey, ...(agentName ? { agentName } : {}) };
+  const path = "/v1/identities";
+  const timestamp = Date.now().toString();
+  const signatureBase64 = signRequestSignature(publicKey, privateKey, "POST", path, timestamp, requestBody);
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "x-agentgate-timestamp": timestamp,
+      "x-agentgate-signature": signatureBase64,
       "x-nonce": randomUUID()
     },
-    body: JSON.stringify({ publicKey, ...(agentName ? { agentName } : {}) })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -234,7 +240,7 @@ export class AgentAdapter {
       return { identityId: identity.identityId };
     }
 
-    const identityId = await registerIdentity(this.baseUrl, identity.publicKey, this.agentName);
+    const identityId = await registerIdentity(this.baseUrl, identity.publicKey, identity.privateKey, this.agentName);
     const storedIdentity: AgentIdentity = { ...identity, identityId };
 
     await writeIdentityFile(this.identityPath, storedIdentity);
@@ -257,6 +263,8 @@ export class AgentAdapter {
     const signatureBase64 = signRequestSignature(
       identity.publicKey,
       identity.privateKey,
+      "POST",
+      path,
       timestamp,
       body
     );

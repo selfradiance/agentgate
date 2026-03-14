@@ -196,7 +196,7 @@ export class IbpService {
     }
 
     const bond = this.getBondOrThrow(action.bond_id);
-    const settlement = this.calculateSettlement(bond.amount_cents, input.outcome);
+    const settlement = this.calculateSettlement(action.exposure_cents, input.outcome);
     const resolvedAt = new Date().toISOString();
 
     const tx = this.db.transaction(() => {
@@ -569,6 +569,15 @@ export class IbpService {
    */
   private rollbackFailedAction(actionId: string, bondId: string, exposureCents: number) {
     const rollback = this.db.transaction(() => {
+      const action = this.db
+        .prepare(`SELECT status FROM actions WHERE id = ?`)
+        .get(actionId) as { status: string } | undefined;
+
+      if (!action || action.status !== "open") {
+        createLogger().warn(`[rollback] skipped — action ${actionId} already resolved (status: ${action?.status ?? "not found"})`);
+        return;
+      }
+
       this.db
         .prepare(`UPDATE actions SET status = 'failed', resolved_at = @resolved_at WHERE id = @id`)
         .run({ id: actionId, resolved_at: new Date().toISOString() });

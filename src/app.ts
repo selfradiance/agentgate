@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type Database from "better-sqlite3";
 import { ZodError } from "zod";
@@ -53,6 +54,8 @@ function recordNonce(db: Database.Database, identityId: string, nonce: string, r
 
 function assertSignedRequest(
   publicKey: string,
+  method: string,
+  path: string,
   timestampHeader: string | string[] | undefined,
   signatureHeader: string | string[] | undefined,
   body: unknown,
@@ -81,7 +84,7 @@ function assertSignedRequest(
     throw new AppError(401, "INVALID_SIGNATURE", "Signature timestamp is invalid");
   }
 
-  if (!verifyRequestSignature(publicKey, timestamp, body, signature)) {
+  if (!verifyRequestSignature(publicKey, method, path, timestamp, body, signature)) {
     createLogger(context?.requestId).warn("signature verification failed", {
       event: "signature_failed",
       reason: "invalid_signature",
@@ -122,7 +125,9 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (!secret) return;
 
     const provided = getHeaderValue(request.headers["x-agentgate-key"]);
-    if (!provided || provided !== secret) {
+    const providedBuf = Buffer.from(provided ?? "");
+    const secretBuf = Buffer.from(secret);
+    if (!provided || providedBuf.length !== secretBuf.length || !timingSafeEqual(providedBuf, secretBuf)) {
       createLogger(request.id).warn(`${isAdmin ? "Admin" : "REST"} auth failed`, {
         event: "auth_failed",
         endpoint: request.url,
@@ -171,9 +176,19 @@ export function createApp(options: AppOptions = {}): AppInstance {
   });
 
   app.post("/v1/identities", async (request, reply) => {
-    // Nonce presence validated; no identity exists yet so dedup is skipped here
     getNonce(request.headers["x-nonce"]);
-    const body = createIdentitySchema.parse(request.body);
+    const rawBody = request.body;
+    const body = createIdentitySchema.parse(rawBody);
+    // Proof-of-possession: verify the caller owns the private key for the public key being registered
+    assertSignedRequest(
+      body.publicKey,
+      request.method,
+      request.url,
+      request.headers["x-agentgate-timestamp"],
+      request.headers["x-agentgate-signature"],
+      rawBody,
+      { requestId: request.id, endpoint: request.url }
+    );
     reply.status(201).send(service.createIdentity(body));
   });
 
@@ -183,6 +198,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const body = lockBondSchema.parse(rawBody);
     assertSignedRequest(
       service.getIdentityPublicKey(body.identityId),
+      request.method,
+      request.url,
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
       rawBody,
@@ -198,6 +215,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const body = executeActionSchema.parse(rawBody);
     assertSignedRequest(
       service.getIdentityPublicKey(body.identityId),
+      request.method,
+      request.url,
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
       rawBody,
@@ -218,6 +237,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const identityId = service.getActionIdentityId(params.actionId);
     assertSignedRequest(
       service.getActionIdentityPublicKey(params.actionId),
+      request.method,
+      request.url,
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
       rawBody,

@@ -29,8 +29,9 @@ function createSigner() {
   };
 }
 
-function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, timestamp = Date.now().toString()) {
-  const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, url: string, timestamp = Date.now().toString()) {
+  const method = "POST";
+  const message = createHash("sha256").update(`${method}${url}${timestamp}${JSON.stringify(body)}`).digest();
 
   return {
     "x-agentgate-timestamp": timestamp,
@@ -40,11 +41,12 @@ function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, times
 
 async function createIdentity(app: ReturnType<typeof createApp>) {
   const signer = createSigner();
+  const payload = { publicKey: signer.publicKey };
   const response = await app.inject({
     method: "POST",
     url: "/v1/identities",
-    headers: { "x-nonce": randomUUID() },
-    payload: { publicKey: signer.publicKey }
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities"), "x-nonce": randomUUID() },
+    payload
   });
 
   return {
@@ -71,7 +73,7 @@ async function lockBond(
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
-    headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce },
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": nonce },
     payload
   })).json().bondId as string;
 }
@@ -86,7 +88,7 @@ async function executeSignedAction(
     method: "POST",
     url: "/v1/actions/execute",
     payload: body,
-    headers: { ...signHeaders(signer.privateKey, body), "x-nonce": nonce }
+    headers: { ...signHeaders(signer.privateKey, body, "/v1/actions/execute"), "x-nonce": nonce }
   });
 }
 
@@ -171,12 +173,13 @@ describe("IBP state transitions", () => {
     });
 
     const resolveBody = { outcome: "failed" as const };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
 
     await app.inject({
       method: "POST",
-      url: `/v1/actions/${actionId}/resolve`,
+      url: resolveUrl,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
     });
 
     const resolvedStatsResponse = await app.inject({
@@ -205,25 +208,28 @@ describe("IBP state transitions", () => {
       payload: {
         note: "Ready to proceed"
       },
-      bondId
+      bondId,
+      exposure_cents: 500
     };
 
     const actionResponse = await executeSignedAction(app, signer, actionBody);
     const actionId = actionResponse.json().actionId as string;
 
     const resolveBody = { outcome: "success" as const };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const resolveResponse = await app.inject({
       method: "POST",
-      url: `/v1/actions/${actionId}/resolve`,
+      url: resolveUrl,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
     });
 
     expect(resolveResponse.statusCode).toBe(200);
+    // Settlement is based on action exposure (ceil(500 × 1.2) = 600), not bond amount
     expect(resolveResponse.json()).toMatchObject({
       actionId,
       outcome: "success",
-      refundCents: 1000,
+      refundCents: 600,
       burnedCents: 0,
       slashedCents: 0
     });
@@ -261,24 +267,27 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "timeout-action",
       payload: "Action with failure risk",
-      bondId
+      bondId,
+      exposure_cents: 500
     };
 
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
+    // Settlement is based on action exposure (ceil(500 × 1.2) = 600), not bond amount
     const resolveBody = { outcome: "failed" as const };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const response = await app.inject({
       method: "POST",
-      url: `/v1/actions/${actionId}/resolve`,
+      url: resolveUrl,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       outcome: "failed",
-      refundCents: 949,
-      burnedCents: 50,
+      refundCents: 570,
+      burnedCents: 30,
       slashedCents: 0
     });
   });
@@ -296,17 +305,20 @@ describe("IBP state transitions", () => {
       payload: {
         reason: "Bad faith action"
       },
-      bondId
+      bondId,
+      exposure_cents: 2000
     };
 
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
+    // Settlement is based on action exposure (ceil(2000 × 1.2) = 2400), not bond amount
     const resolveBody = { outcome: "malicious" as const };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const response = await app.inject({
       method: "POST",
-      url: `/v1/actions/${actionId}/resolve`,
+      url: resolveUrl,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(200);
@@ -314,7 +326,7 @@ describe("IBP state transitions", () => {
       outcome: "malicious",
       refundCents: 0,
       burnedCents: 0,
-      slashedCents: 5000
+      slashedCents: 2400
     });
   });
 
@@ -336,11 +348,12 @@ describe("IBP state transitions", () => {
 
     // Resolve the action as success — bond becomes released
     const resolveBody = { outcome: "success" as const };
+    const resolveUrl = `/v1/actions/${firstActionId}/resolve`;
     await app.inject({
       method: "POST",
-      url: `/v1/actions/${firstActionId}/resolve`,
+      url: resolveUrl,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
     });
 
     const secondActionBody = {
@@ -400,7 +413,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: { ...signHeaders(wrongSigner.privateKey, actionBody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(wrongSigner.privateKey, actionBody, "/v1/actions/execute"), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(401);
@@ -439,7 +452,7 @@ describe("IBP state transitions", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(wrongSigner.privateKey, lockPayload), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(wrongSigner.privateKey, lockPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: lockPayload
     });
 
@@ -468,7 +481,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: { ...signHeaders(signer.privateKey, actionBody, `${Date.now() - 61_000}`), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, actionBody, "/v1/actions/execute", `${Date.now() - 61_000}`), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(401);
@@ -496,7 +509,7 @@ describe("IBP state transitions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: { ...signHeaders(signer.privateKey, actionBody, `${Date.now() + 10_000}`), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, actionBody, "/v1/actions/execute", `${Date.now() + 10_000}`), "x-nonce": randomUUID() }
     });
 
     expect(response.statusCode).toBe(401);
@@ -658,11 +671,12 @@ describe("IBP state transitions", () => {
 
     // Resolve first action as success
     const resolve1Body = { outcome: "success" as const };
+    const resolve1Url = `/v1/actions/${action1Id}/resolve`;
     await app.inject({
       method: "POST",
-      url: `/v1/actions/${action1Id}/resolve`,
+      url: resolve1Url,
       payload: resolve1Body,
-      headers: { ...signHeaders(signer.privateKey, resolve1Body), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolve1Body, resolve1Url), "x-nonce": randomUUID() }
     });
 
     // After resolving one: outstanding should be 600, status still "occupied"
@@ -674,11 +688,12 @@ describe("IBP state transitions", () => {
 
     // Resolve second action as success
     const resolve2Body = { outcome: "success" as const };
+    const resolve2Url = `/v1/actions/${action2Id}/resolve`;
     await app.inject({
       method: "POST",
-      url: `/v1/actions/${action2Id}/resolve`,
+      url: resolve2Url,
       payload: resolve2Body,
-      headers: { ...signHeaders(signer.privateKey, resolve2Body), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolve2Body, resolve2Url), "x-nonce": randomUUID() }
     });
 
     // After resolving both: outstanding should be 0, status "released"
@@ -741,7 +756,7 @@ describe("Identity Governance", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, lockPayload), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(signer.privateKey, lockPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: lockPayload
     });
 
@@ -790,7 +805,7 @@ describe("Identity Governance", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, unbanLockPayload), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(signer.privateKey, unbanLockPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: unbanLockPayload
     });
 
@@ -811,11 +826,12 @@ describe("Identity Governance", () => {
       const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
       const resolveBody = { outcome: "malicious" as const };
+      const resolveUrl = `/v1/actions/${actionId}/resolve`;
       await app.inject({
         method: "POST",
-        url: `/v1/actions/${actionId}/resolve`,
+        url: resolveUrl,
         payload: resolveBody,
-        headers: { ...signHeaders(signer.privateKey, resolveBody), "x-nonce": randomUUID() }
+        headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
       });
     }
 
@@ -823,7 +839,7 @@ describe("Identity Governance", () => {
     const lockResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, postBanPayload), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(signer.privateKey, postBanPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: postBanPayload
     });
 
@@ -856,7 +872,7 @@ describe("nonce replay protection", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, firstPayload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, firstPayload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload: firstPayload
     });
     expect(first.statusCode).toBe(201);
@@ -865,7 +881,7 @@ describe("nonce replay protection", () => {
     const second = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, secondPayload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, secondPayload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload: secondPayload
     });
     expect(second.statusCode).toBe(409);
@@ -880,7 +896,7 @@ describe("nonce replay protection", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, firstPayload), "x-nonce": "aaa" },
+      headers: { ...signHeaders(signer.privateKey, firstPayload, "/v1/bonds/lock"), "x-nonce": "aaa" },
       payload: firstPayload
     });
     expect(first.statusCode).toBe(201);
@@ -889,7 +905,7 @@ describe("nonce replay protection", () => {
     const second = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, secondPayload), "x-nonce": "bbb" },
+      headers: { ...signHeaders(signer.privateKey, secondPayload, "/v1/bonds/lock"), "x-nonce": "bbb" },
       payload: secondPayload
     });
     expect(second.statusCode).toBe(201);
@@ -905,7 +921,7 @@ describe("nonce replay protection", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer1.privateKey, firstPayload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer1.privateKey, firstPayload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload: firstPayload
     });
     expect(first.statusCode).toBe(201);
@@ -914,7 +930,7 @@ describe("nonce replay protection", () => {
     const second = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer2.privateKey, secondPayload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer2.privateKey, secondPayload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload: secondPayload
     });
     expect(second.statusCode).toBe(201);

@@ -38,9 +38,11 @@ function createSigner() {
 function signHeaders(
   privateKey: KeyObject,
   body: Record<string, unknown>,
+  url: string,
   timestamp = Date.now().toString()
 ) {
-  const message = createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+  const method = "POST";
+  const message = createHash("sha256").update(`${method}${url}${timestamp}${JSON.stringify(body)}`).digest();
   return {
     "x-agentgate-timestamp": timestamp,
     "x-agentgate-signature": sign(null, message, privateKey).toString("base64"),
@@ -759,7 +761,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
       .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { status: string; slashed_cents: number };
     expect(afterFirst.status).toBe("slashed");
-    expect(afterFirst.slashed_cents).toBe(1000); // full bond amount slashed once
+    expect(afterFirst.slashed_cents).toBe(600); // action exposure (ceil(500 × 1.2)) slashed, not full bond
 
     // Second sweep: the action is no longer 'open', so nothing should be slashed
     const secondSweep = service.sweepExpiredActions();
@@ -770,7 +772,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
       .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { status: string; slashed_cents: number };
     expect(afterSecond.status).toBe("slashed");
-    expect(afterSecond.slashed_cents).toBe(1000); // still 1000, not 2000
+    expect(afterSecond.slashed_cents).toBe(600); // still 600, not 1200
 
     validateInvariants(handle.db);
   });
@@ -857,13 +859,13 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
   it("rejects the second request that replays an identical nonce, signature, and timestamp", async () => {
     const app = await buildApp();
 
-    // Create an identity (no signature required — identity creation is unauthenticated)
     const signer = createSigner();
+    const identityPayload = { publicKey: signer.publicKey };
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
-      headers: { "x-nonce": randomUUID() },
-      payload: { publicKey: signer.publicKey }
+      headers: { ...signHeaders(signer.privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
     });
     expect(identityResponse.statusCode).toBe(201);
     const { identityId } = identityResponse.json() as { identityId: string };
@@ -881,7 +883,7 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload
     });
     expect(first.statusCode).toBe(201);
@@ -891,7 +893,7 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const replay = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": nonce },
       payload
     });
     expect(replay.statusCode).toBe(409);
@@ -933,11 +935,12 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
     const { privateKey, publicKey } = createSigner();
 
     // Create identity and lock a bond at T=0
+    const identityPayload = { publicKey };
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
-      headers: { "x-nonce": randomUUID() },
-      payload: { publicKey }
+      headers: { ...signHeaders(privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
@@ -945,7 +948,7 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(privateKey, bondPayload), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(privateKey, bondPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: bondPayload
     });
     const { bondId } = bondResponse.json() as { bondId: string };
@@ -960,7 +963,7 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
       actionType: "attack-3.2",
       exposure_cents: 100,
     };
-    const headers = signHeaders(privateKey, actionBody, timestamp);
+    const headers = signHeaders(privateKey, actionBody, "/v1/actions/execute", timestamp);
 
     // First request: timestamp is 55s old, nonce is fresh → accepted
     const first = await app.inject({
@@ -1016,11 +1019,12 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
     const app = await buildApp();
 
     const signer = createSigner();
+    const identityPayload = { publicKey: signer.publicKey };
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
-      headers: { "x-nonce": randomUUID() },
-      payload: { publicKey: signer.publicKey }
+      headers: { ...signHeaders(signer.privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
@@ -1037,7 +1041,7 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
     // better-sqlite3 is synchronous, so the two INSERT OR IGNORE calls are
     // serialized at the SQLite level — exactly one will write a row and the
     // other will be ignored (changes = 0), triggering DUPLICATE_NONCE.
-    const signedHeaders = { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce };
+    const signedHeaders = { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": nonce };
     const [resA, resB] = await Promise.all([
       app.inject({ method: "POST", url: "/v1/bonds/lock", headers: signedHeaders, payload }),
       app.inject({ method: "POST", url: "/v1/bonds/lock", headers: signedHeaders, payload }),
@@ -1080,11 +1084,12 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     const app = await buildApp();
     const { privateKey, publicKey } = createSigner();
 
+    const identityPayload = { publicKey };
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
-      headers: { "x-nonce": randomUUID() },
-      payload: { publicKey }
+      headers: { ...signHeaders(privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
@@ -1092,7 +1097,7 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(privateKey, bondPayload41), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(privateKey, bondPayload41, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: bondPayload41
     });
     const { bondId } = bondResponse.json() as { bondId: string };
@@ -1115,7 +1120,7 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
         method: "POST",
         url: "/v1/actions/execute",
         payload: actionBody,
-        headers: { ...signHeaders(privateKey, actionBody), "x-nonce": randomUUID() },
+        headers: { ...signHeaders(privateKey, actionBody, "/v1/actions/execute"), "x-nonce": randomUUID() },
       });
     });
 
@@ -1152,11 +1157,12 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     const app = await buildApp();
     const { privateKey, publicKey } = createSigner();
 
+    const identityPayload = { publicKey };
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
-      headers: { "x-nonce": randomUUID() },
-      payload: { publicKey }
+      headers: { ...signHeaders(privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
@@ -1164,7 +1170,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { ...signHeaders(privateKey, bondPayload42), "x-nonce": randomUUID() },
+      headers: { ...signHeaders(privateKey, bondPayload42, "/v1/bonds/lock"), "x-nonce": randomUUID() },
       payload: bondPayload42
     });
     const { bondId } = bondResponse.json() as { bondId: string };
@@ -1175,7 +1181,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionABody,
-      headers: { ...signHeaders(privateKey, actionABody), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(privateKey, actionABody, "/v1/actions/execute"), "x-nonce": randomUUID() }
     });
     expect(actionAResponse.statusCode).toBe(201);
     const { actionId } = actionAResponse.json() as { actionId: string };
@@ -1186,20 +1192,21 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     // The interesting assertion is that resolve A succeeds cleanly and the final exposure
     // accounting is correct regardless of how the event loop interleaves the two handlers.
     const resolveBody = { outcome: "success" as const };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const actionBBody = { identityId, bondId, actionType: "attack-4.2-B", exposure_cents: 200 };
 
     const [resolveResponse, executeBResponse] = await Promise.all([
       app.inject({
         method: "POST",
-        url: `/v1/actions/${actionId}/resolve`,
+        url: resolveUrl,
         payload: resolveBody,
-        headers: { ...signHeaders(privateKey, resolveBody), "x-nonce": randomUUID() }
+        headers: { ...signHeaders(privateKey, resolveBody, resolveUrl), "x-nonce": randomUUID() }
       }),
       app.inject({
         method: "POST",
         url: "/v1/actions/execute",
         payload: actionBBody,
-        headers: { ...signHeaders(privateKey, actionBBody), "x-nonce": randomUUID() }
+        headers: { ...signHeaders(privateKey, actionBBody, "/v1/actions/execute"), "x-nonce": randomUUID() }
       }),
     ]);
 

@@ -71,8 +71,8 @@ function createEd25519PrivateKey(publicKeyBase64: string, privateKeyBase64: stri
   });
 }
 
-export function buildSignedMessage(timestamp: string, body: unknown) {
-  return createHash("sha256").update(`${timestamp}${JSON.stringify(body)}`).digest();
+export function buildSignedMessage(method: string, path: string, timestamp: string, body: unknown) {
+  return createHash("sha256").update(`${method}${path}${timestamp}${JSON.stringify(body)}`).digest();
 }
 
 export function isEd25519PublicKey(publicKeyBase64: string) {
@@ -93,6 +93,8 @@ export function isFreshTimestamp(timestamp: string, now = Date.now()) {
 
 export function verifyRequestSignature(
   publicKeyBase64: string,
+  method: string,
+  path: string,
   timestamp: string,
   body: unknown,
   signatureBase64: string
@@ -104,7 +106,7 @@ export function verifyRequestSignature(
   }
 
   try {
-    return verify(null, buildSignedMessage(timestamp, body), createEd25519PublicKey(publicKeyBase64), signature);
+    return verify(null, buildSignedMessage(method, path, timestamp, body), createEd25519PublicKey(publicKeyBase64), signature);
   } catch {
     return false;
   }
@@ -113,12 +115,14 @@ export function verifyRequestSignature(
 export function signRequestSignature(
   publicKeyBase64: string,
   privateKeyBase64: string,
+  method: string,
+  path: string,
   timestamp: string,
   body: unknown
 ) {
   const signature = sign(
     null,
-    buildSignedMessage(timestamp, body),
+    buildSignedMessage(method, path, timestamp, body),
     createEd25519PrivateKey(publicKeyBase64, privateKeyBase64)
   );
 
