@@ -160,6 +160,18 @@ This means:
 2. **Signed registration challenges (proof-of-possession)** — require the caller to sign a server-issued challenge during `POST /v1/identities`, proving they hold the private key. This prevents identity squatting on keys the caller doesn't control.
 3. **Key-fingerprint-scoped enforcement** — move bans, rate limits, and reputation scoring from `identity_id` to the public key fingerprint. This way, creating a new identity with the same key inherits the existing reputation and restrictions, closing the reset loophole entirely.
 
+### GET Endpoints Do Not Require Authentication
+
+The following GET endpoints are publicly accessible without any API key or signature:
+
+- **`/health`** — returns `{ status: "ok", timestamp }`.
+- **`/v1/stats`** — returns aggregate counts (total identities, actions, active bonds, locked cents).
+- **`/v1/identities/:id`** — returns identity metadata, public key, and reputation score/stats.
+
+**This is intentional.** `/health` is designed to be unauthenticated so external uptime monitors (e.g., UptimeRobot) can poll it without credentials. The other two endpoints expose only summary data — identity metadata, aggregate statistics, and reputation scores. No private keys, bond amounts tied to specific agents, or action payloads are returned.
+
+**If the deployment scope expands** to include sensitive per-identity data in GET responses (e.g., detailed action history, bond balances, or internal metadata), these endpoints should be gated behind `AGENTGATE_REST_KEY` or Ed25519 signature verification to prevent information leakage.
+
 ---
 
 ## Assumptions
