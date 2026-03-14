@@ -263,7 +263,7 @@ function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unk
 export function registerDashboard(app: AppInstance) {
   app.get("/dashboard", {
     preHandler: async (request, reply) => {
-      const secret = process.env.AGENTGATE_REST_KEY;
+      const secret = process.env.AGENTGATE_DASHBOARD_KEY;
       if (!secret) return;
       const auth = request.headers.authorization;
       if (!auth || !auth.startsWith("Basic ")) {
