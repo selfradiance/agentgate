@@ -139,6 +139,29 @@ AgentGate does not handle TLS termination, DDoS protection, or network-layer sec
 
 ---
 
+## Known Limitations
+
+### Identity Model Does Not Enforce Public Key Uniqueness or Proof-of-Possession
+
+The current identity registration endpoint (`POST /v1/identities`) accepts any valid Ed25519 public key and creates a new identity for it — without checking whether that key is already registered and without requiring the caller to prove they hold the corresponding private key.
+
+This means:
+
+- **A single actor can create multiple identities** using the same public key, or different keys they control, spreading activity across them.
+- **Reputation tracking is diluted.** A bad actor with a -40 reputation score can create a fresh identity and start over at 0.
+- **Per-identity rate limits (10 actions/60s) can be circumvented** by rotating across identities.
+- **The 3-malicious-actions auto-ban threshold resets** with each new identity, so an attacker is never permanently banned — only temporarily inconvenienced.
+
+**This is a known design choice for the current prototype scope.** Economic accountability in AgentGate comes from the bond requirement, not from identity scarcity. Every action — regardless of which identity executes it — still requires real collateral that can be slashed. Creating 10 identities to evade a rate limit means posting 10× the bonds. The progressive minimum bond escalation further increases the cost of sustained abuse.
+
+**Future hardening options:**
+
+1. **Unique index on `public_key`** — prevent the same key from registering multiple identities.
+2. **Signed registration challenges (proof-of-possession)** — require the caller to sign a server-issued challenge during `POST /v1/identities`, proving they hold the private key. This prevents identity squatting on keys the caller doesn't control.
+3. **Key-fingerprint-scoped enforcement** — move bans, rate limits, and reputation scoring from `identity_id` to the public key fingerprint. This way, creating a new identity with the same key inherits the existing reputation and restrictions, closing the reset loophole entirely.
+
+---
+
 ## Assumptions
 
 1. **The AgentGate server is trusted infrastructure.** The operator (you) controls the server. AgentGate does not protect against a compromised server.
