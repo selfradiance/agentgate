@@ -115,9 +115,11 @@ Bonds are not single-use. Each bond represents reusable execution capacity.
 
 ### Exposure Lifecycle
 
+Bonds support multiple concurrent actions. Each action reserves its own slice of the bond's capacity, and resolving one action only releases that action's exposure — other open actions on the same bond are unaffected.
+
 - **Execute:** exposure reserved, `outstanding_exposure_cents` incremented, bond marked `occupied`
-- **Resolve (success/failed):** exposure released, bond status set to `released`
-- **Resolve (malicious):** `amount_cents` reduced (clamped at zero), `slashed_cents` increased, bond `burned`
+- **Resolve (success/failed):** that action's exposure released; bond returns to `active` only when all open actions are resolved
+- **Resolve (malicious):** `amount_cents` reduced (clamped at zero), `slashed_cents` increased; bond `burned` only when no open actions remain
 
 ### Auto-Slash Sweeper
 
@@ -273,7 +275,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-59 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
+61 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
 
 ---
 
@@ -297,17 +299,24 @@ The MCP HTTP endpoint (port 3001) is protected by a shared-secret header.
 AGENTGATE_MCP_KEY=your-long-random-secret
 ```
 
-### REST API & Dashboard Authentication
+### REST API, Admin & Dashboard Authentication
 
-The REST API (all POST routes on port 3000) and dashboard are protected by `AGENTGATE_REST_KEY`.
+Auth is split into three independent environment variables, each protecting a different surface:
 
-- Set `AGENTGATE_REST_KEY` in your `.env` file
-- If not set, a warning is logged at startup and all requests are allowed through (local dev)
-- **POST routes:** require an `x-agentgate-key` header matching the key; returns `401 UNAUTHORIZED` if missing or wrong
-- **Dashboard (`/dashboard`):** protected by HTTP Basic Auth — username `admin`, password is the key value; the browser will show a login popup automatically
+| Variable | Protects | How it's checked |
+|---|---|---|
+| `AGENTGATE_REST_KEY` | All non-admin POST routes (bonds, actions, markets) | `x-agentgate-key` header |
+| `AGENTGATE_ADMIN_KEY` | Admin endpoints (`/admin/ban-identity`, `/admin/unban-identity`) | `x-agentgate-key` header |
+| `AGENTGATE_DASHBOARD_KEY` | Dashboard (`/dashboard`) | HTTP Basic Auth (username `admin`, password = key value) |
+
+- If a key is **not set**, a warning is logged at startup and requests to that surface are allowed through (suitable for local dev)
+- If a key **is set**, requests without a valid credential receive `401 UNAUTHORIZED`
+- Each key can be rotated independently without affecting the others
 
 ```
-AGENTGATE_REST_KEY=your-long-random-secret
+AGENTGATE_REST_KEY=your-rest-secret
+AGENTGATE_ADMIN_KEY=your-admin-secret
+AGENTGATE_DASHBOARD_KEY=your-dashboard-secret
 ```
 
 ### Identity Governance
@@ -416,7 +425,7 @@ pm2 stop agentgate       # stop the server
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (59 tests)
+- **Testing:** Vitest (61 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (runs on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
@@ -432,7 +441,7 @@ pm2 stop agentgate       # stop the server
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring function
-- `test/` — 56 tests across 5 suites (API, MCP integration, prediction markets, sweeper, red team)
+- `test/` — 61 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases
