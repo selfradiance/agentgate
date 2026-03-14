@@ -172,10 +172,16 @@ export function createApp(options: AppOptions = {}): AppInstance {
 
   app.post("/v1/bonds/lock", async (request, reply) => {
     const nonce = getNonce(request.headers["x-nonce"]);
-    const body = lockBondSchema.parse(request.body);
-    // Verify identity exists before recording nonce (avoids FK violation)
-    service.getIdentityPublicKey(body.identityId);
-    recordNonce(database.db, body.identityId, nonce);
+    const rawBody = request.body;
+    const body = lockBondSchema.parse(rawBody);
+    assertSignedRequest(
+      service.getIdentityPublicKey(body.identityId),
+      request.headers["x-agentgate-timestamp"],
+      request.headers["x-agentgate-signature"],
+      rawBody,
+      { identityId: body.identityId, requestId: request.id, endpoint: request.url }
+    );
+    recordNonce(database.db, body.identityId, nonce, request.id);
     reply.status(201).send(service.lockBond(body));
   });
 

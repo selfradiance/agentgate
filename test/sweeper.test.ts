@@ -42,12 +42,13 @@ async function createIdentity(app: AppInstance) {
   return { signer, identityId: response.json().identityId as string };
 }
 
-async function lockBond(app: AppInstance, identityId: string, amountCents: number, reason: string, ttlSeconds: number) {
+async function lockBond(app: AppInstance, signer: { privateKey: KeyObject }, identityId: string, amountCents: number, reason: string, ttlSeconds: number) {
+  const payload = { identityId, amountCents, currency: "USD", ttlSeconds, reason };
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
-    headers: { "x-nonce": randomUUID() },
-    payload: { identityId, amountCents, currency: "USD", ttlSeconds, reason }
+    headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": randomUUID() },
+    payload
   })).json().bondId as string;
 }
 
@@ -66,7 +67,7 @@ describe("sweepExpiredActions", () => {
 
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const bondId = await lockBond(app, identityId, 1000, "sweep-test", 1);
+    const bondId = await lockBond(app, signer, identityId, 1000, "sweep-test", 1);
 
     const actionBody = { identityId, bondId, actionType: "sweep-test", payload: { test: true } };
     const executeResponse = await app.inject({
@@ -109,7 +110,7 @@ describe("sweepExpiredActions", () => {
 
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const bondId = await lockBond(app, identityId, 1000, "long-bond", 3600);
+    const bondId = await lockBond(app, signer, identityId, 1000, "long-bond", 3600);
 
     const actionBody = { identityId, bondId, actionType: "long-running", payload: {} };
     await app.inject({

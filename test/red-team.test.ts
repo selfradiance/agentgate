@@ -858,11 +858,12 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const app = await buildApp();
 
     // Create an identity (no signature required — identity creation is unauthenticated)
+    const signer = createSigner();
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
       headers: { "x-nonce": randomUUID() },
-      payload: { publicKey: generatePublicKey() }
+      payload: { publicKey: signer.publicKey }
     });
     expect(identityResponse.statusCode).toBe(201);
     const { identityId } = identityResponse.json() as { identityId: string };
@@ -880,7 +881,7 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce },
       payload
     });
     expect(first.statusCode).toBe(201);
@@ -890,7 +891,7 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const replay = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { "x-nonce": nonce },
+      headers: { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce },
       payload
     });
     expect(replay.statusCode).toBe(409);
@@ -940,11 +941,12 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
+    const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-3.2" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { "x-nonce": randomUUID() },
-      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-3.2" }
+      headers: { ...signHeaders(privateKey, bondPayload), "x-nonce": randomUUID() },
+      payload: bondPayload
     });
     const { bondId } = bondResponse.json() as { bondId: string };
 
@@ -1013,11 +1015,12 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
   it("allows exactly one request through when two identical nonces are submitted concurrently", async () => {
     const app = await buildApp();
 
+    const signer = createSigner();
     const identityResponse = await app.inject({
       method: "POST",
       url: "/v1/identities",
       headers: { "x-nonce": randomUUID() },
-      payload: { publicKey: generatePublicKey() }
+      payload: { publicKey: signer.publicKey }
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
@@ -1034,9 +1037,10 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
     // better-sqlite3 is synchronous, so the two INSERT OR IGNORE calls are
     // serialized at the SQLite level — exactly one will write a row and the
     // other will be ignored (changes = 0), triggering DUPLICATE_NONCE.
+    const signedHeaders = { ...signHeaders(signer.privateKey, payload), "x-nonce": nonce };
     const [resA, resB] = await Promise.all([
-      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: { "x-nonce": nonce }, payload }),
-      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: { "x-nonce": nonce }, payload }),
+      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: signedHeaders, payload }),
+      app.inject({ method: "POST", url: "/v1/bonds/lock", headers: signedHeaders, payload }),
     ]);
 
     const statuses = [resA.statusCode, resB.statusCode].sort();
@@ -1084,11 +1088,12 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
+    const bondPayload41 = { identityId, amountCents: 10_000, currency: "USD", ttlSeconds: 300, reason: "attack-4.1" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { "x-nonce": randomUUID() },
-      payload: { identityId, amountCents: 10_000, currency: "USD", ttlSeconds: 300, reason: "attack-4.1" }
+      headers: { ...signHeaders(privateKey, bondPayload41), "x-nonce": randomUUID() },
+      payload: bondPayload41
     });
     const { bondId } = bondResponse.json() as { bondId: string };
 
@@ -1155,11 +1160,12 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
+    const bondPayload42 = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: { "x-nonce": randomUUID() },
-      payload: { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" }
+      headers: { ...signHeaders(privateKey, bondPayload42), "x-nonce": randomUUID() },
+      payload: bondPayload42
     });
     const { bondId } = bondResponse.json() as { bondId: string };
 
