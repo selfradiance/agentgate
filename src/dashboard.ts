@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { AppInstance } from "./app";
 import { scoreIdentity } from "./reputation";
 import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord } from "./types";
@@ -273,7 +274,9 @@ export function registerDashboard(app: AppInstance) {
       const decoded = Buffer.from(auth.slice(6), "base64").toString("utf8");
       const colonIndex = decoded.indexOf(":");
       const password = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : "";
-      if (password !== secret) {
+      const passwordBuf = Buffer.from(password);
+      const secretBuf = Buffer.from(secret);
+      if (passwordBuf.length !== secretBuf.length || !timingSafeEqual(passwordBuf, secretBuf)) {
         reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
       }
     }
