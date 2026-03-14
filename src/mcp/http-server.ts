@@ -6,7 +6,21 @@ import { AgentAdapter } from "../agent-adapter.js";
 import { createMcpServer } from "./server.js";
 import { createLogger } from "../logger.js";
 
+const MAX_SESSIONS = 100;
+const SESSION_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_CLEANUP_INTERVAL_MS = 60 * 1000; // 60 seconds
+
 const transports = new Map<string, StreamableHTTPServerTransport>();
+const lastActivity = new Map<string, number>();
+
+function touchSession(sessionId: string) {
+  lastActivity.set(sessionId, Date.now());
+}
+
+function removeSession(sessionId: string) {
+  transports.delete(sessionId);
+  lastActivity.delete(sessionId);
+}
 
 function mcpAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const secret = process.env.AGENTGATE_MCP_KEY;
@@ -31,7 +45,7 @@ function mcpAuthMiddleware(req: express.Request, res: express.Response, next: ex
 
 export function startMcpHttpServer(port: number) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "1mb" }));
 
   if (!process.env.AGENTGATE_MCP_KEY) {
     process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP auth is disabled, all requests are allowed\n");
@@ -55,16 +69,23 @@ export function startMcpHttpServer(port: number) {
           });
           return;
         }
+        touchSession(sessionId);
         await transport.handleRequest(req, res, req.body);
         return;
       }
 
       if (isInitializeRequest(req.body)) {
+        if (transports.size >= MAX_SESSIONS) {
+          res.status(503).json({ error: "TOO_MANY_SESSIONS" });
+          return;
+        }
+
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
           onsessioninitialized: (sid) => {
             transports.set(sid, transport);
+            touchSession(sid);
           }
         });
 
@@ -109,6 +130,7 @@ export function startMcpHttpServer(port: number) {
       return;
     }
 
+    touchSession(sessionId);
     await transport.handleRequest(req, res);
   });
 
@@ -129,14 +151,31 @@ export function startMcpHttpServer(port: number) {
     }
 
     await transport.close();
-    transports.delete(sessionId);
+    removeSession(sessionId);
     res.status(200).send("Session terminated");
   });
+
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [sessionId, lastUsed] of lastActivity) {
+      if (now - lastUsed > SESSION_IDLE_TIMEOUT_MS) {
+        const transport = transports.get(sessionId);
+        if (transport) {
+          transport.close().catch(() => {});
+        }
+        removeSession(sessionId);
+      }
+    }
+  }, SESSION_CLEANUP_INTERVAL_MS);
 
   const httpServer = app.listen(port, "127.0.0.1", () => {
     process.stderr.write(
       `MCP HTTP server listening on port ${port}, endpoint: /mcp\n`
     );
+  });
+
+  httpServer.on("close", () => {
+    clearInterval(cleanupInterval);
   });
 
   return httpServer;
