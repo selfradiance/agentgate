@@ -26,6 +26,7 @@ interface SettledAmounts {
   bondStatus: BondStatus;
 }
 const RISK_MULTIPLIER = 1.2;
+const MAX_TTL_SECONDS = 86400; // 24 hours
 export class IbpService {
   constructor(private readonly db: Database.Database) { }
 
@@ -51,6 +52,14 @@ export class IbpService {
   lockBond(input: LockBondInput) {
     this.assertNotBanned(input.identityId);
     this.getIdentityOrThrow(input.identityId);
+
+    if (input.ttlSeconds > MAX_TTL_SECONDS) {
+      throw new AppError(
+        400,
+        "TTL_TOO_LONG",
+        `TTL exceeds maximum of ${MAX_TTL_SECONDS} seconds (24 hours)`
+      );
+    }
 
     const id = `bond_${randomUUID()}`;
     const createdAt = new Date();

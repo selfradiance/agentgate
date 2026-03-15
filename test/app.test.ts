@@ -1064,3 +1064,22 @@ describe("bond settlement fields", () => {
     expect(bond.status).toBe("slashed");
   });
 });
+
+describe("bond TTL cap", () => {
+  it("rejects bond with ttl_seconds exceeding 86400", async () => {
+    const app = createApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    const payload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 86401, reason: "too long" };
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
+      payload
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("TTL_TOO_LONG");
+    expect(res.json().message).toMatch(/TTL exceeds maximum/);
+  });
+});
