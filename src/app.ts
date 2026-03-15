@@ -282,14 +282,16 @@ export function createApp(options: AppOptions = {}): AppInstance {
     reply.send(service.resolveAction(params.actionId, body));
   });
 
-  app.post("/v1/demo/echo", async (request, reply) => {
-    // Nonce presence validated; no identity context so dedup is skipped here
-    getNonce(request.headers["x-nonce"]);
-    reply.status(200).send({
-      ok: true,
-      received: request.body
+  if (devMode) {
+    app.post("/v1/demo/echo", async (request, reply) => {
+      // Nonce presence validated; no identity context so dedup is skipped here
+      getNonce(request.headers["x-nonce"]);
+      reply.status(200).send({
+        ok: true,
+        received: request.body
+      });
     });
-  });
+  }
 
   app.post("/admin/ban-identity", async (request, reply) => {
     const body = banIdentitySchema.parse(request.body);
