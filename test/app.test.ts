@@ -961,3 +961,106 @@ describe("identity registration", () => {
     expect(second.json().error).toBe("DUPLICATE_IDENTITY");
   });
 });
+
+describe("bond settlement fields", () => {
+  it("persists refund_cents, burned_cents=0, and closed_at after successful resolution", async () => {
+    const app = await buildApp();
+    const signer = createSigner();
+    const identityPayload = { publicKey: signer.publicKey };
+    const idRes = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { ...signHeaders(signer.privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
+    });
+    const { identityId } = idRes.json() as { identityId: string };
+
+    const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "settlement-test-success" };
+    const bondRes = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { ...signHeaders(signer.privateKey, bondPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
+      payload: bondPayload
+    });
+    const { bondId } = bondRes.json() as { bondId: string };
+
+    const actionPayload = { identityId, bondId, actionType: "settlement-test", exposure_cents: 500 };
+    const actionRes = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      headers: { ...signHeaders(signer.privateKey, actionPayload, "/v1/actions/execute"), "x-nonce": randomUUID() },
+      payload: actionPayload
+    });
+    const { actionId } = actionRes.json() as { actionId: string };
+
+    const resolvePayload = { outcome: "success" };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
+    await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      headers: { ...signHeaders(signer.privateKey, resolvePayload, resolveUrl), "x-nonce": randomUUID() },
+      payload: resolvePayload
+    });
+
+    const bond = app.db
+      .prepare(`SELECT refund_cents, burned_cents, closed_at, status FROM bonds WHERE id = ?`)
+      .get(bondId) as { refund_cents: number; burned_cents: number; closed_at: string | null; status: string };
+
+    // Effective exposure = ceil(500 * 1.2) = 600; success refunds the full effective exposure
+    expect(bond.refund_cents).toBe(600);
+    expect(bond.burned_cents).toBe(0);
+    expect(bond.closed_at).toBeTruthy();
+    expect(bond.status).toBe("released");
+  });
+
+  it("persists slashed_cents, burned_cents=0, refund_cents=0, and closed_at after malicious resolution", async () => {
+    const app = await buildApp();
+    const signer = createSigner();
+    const identityPayload = { publicKey: signer.publicKey };
+    const idRes = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { ...signHeaders(signer.privateKey, identityPayload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload: identityPayload
+    });
+    const { identityId } = idRes.json() as { identityId: string };
+
+    const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "settlement-test-malicious" };
+    const bondRes = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: { ...signHeaders(signer.privateKey, bondPayload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
+      payload: bondPayload
+    });
+    const { bondId } = bondRes.json() as { bondId: string };
+
+    const actionPayload = { identityId, bondId, actionType: "settlement-test", exposure_cents: 500 };
+    const actionRes = await app.inject({
+      method: "POST",
+      url: "/v1/actions/execute",
+      headers: { ...signHeaders(signer.privateKey, actionPayload, "/v1/actions/execute"), "x-nonce": randomUUID() },
+      payload: actionPayload
+    });
+    const { actionId } = actionRes.json() as { actionId: string };
+
+    const resolvePayload = { outcome: "malicious" };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
+    await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      headers: { ...signHeaders(signer.privateKey, resolvePayload, resolveUrl), "x-nonce": randomUUID() },
+      payload: resolvePayload
+    });
+
+    const bond = app.db
+      .prepare(`SELECT refund_cents, burned_cents, slashed_cents, closed_at, status FROM bonds WHERE id = ?`)
+      .get(bondId) as { refund_cents: number; burned_cents: number; slashed_cents: number; closed_at: string | null; status: string };
+
+    // Effective exposure = ceil(500 * 1.2) = 600; malicious slashes the full effective exposure
+    expect(bond.refund_cents).toBe(0);
+    expect(bond.burned_cents).toBe(0);
+    expect(bond.slashed_cents).toBe(600);
+    expect(bond.closed_at).toBeTruthy();
+    expect(bond.status).toBe("slashed");
+  });
+});

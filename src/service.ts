@@ -215,18 +215,22 @@ export class IbpService {
           resolved_at: resolvedAt
         });
 
-      // Subtract this action's exposure (not zero the whole bond)
+      // Subtract this action's exposure and accumulate settlement amounts
       this.db
         .prepare(
           `UPDATE bonds
            SET outstanding_exposure_cents = outstanding_exposure_cents - @action_exposure,
-               slashed_cents = slashed_cents + @slashed_cents
+               slashed_cents = slashed_cents + @slashed_cents,
+               refund_cents = refund_cents + @refund_cents,
+               burned_cents = burned_cents + @burned_cents
            WHERE id = @id`
         )
         .run({
           id: bond.id,
           action_exposure: action.exposure_cents,
-          slashed_cents: settlement.slashedCents
+          slashed_cents: settlement.slashedCents,
+          refund_cents: settlement.refundCents,
+          burned_cents: settlement.burnedCents
         });
 
       // For malicious outcomes, reduce the bond's amount by the slashed amount
@@ -250,8 +254,8 @@ export class IbpService {
 
       if (remaining === 0) {
         this.db
-          .prepare(`UPDATE bonds SET status = @status WHERE id = @id`)
-          .run({ id: bond.id, status: settlement.bondStatus });
+          .prepare(`UPDATE bonds SET status = @status, closed_at = @closed_at WHERE id = @id`)
+          .run({ id: bond.id, status: settlement.bondStatus, closed_at: resolvedAt });
       }
     });
 
