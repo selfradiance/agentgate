@@ -103,6 +103,7 @@ For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 
 - Ed25519 public key (raw 32-byte base64)
 - All state-changing endpoints require signed requests — including identity registration itself, which requires proof-of-possession (the caller must sign the request with the private key matching the public key being registered)
+- Public key uniqueness enforced at the database level — duplicate identity registration is rejected with `409 DUPLICATE_IDENTITY`
 - Replay protection via timestamp validation (60-second window, 5-second future tolerance) AND nonce store (duplicate rejection per identity)
 - Named agent support: set `AGENTGATE_AGENT_NAME` env var to create separate identity files per agent (e.g., `agent-identity-trader.json`)
 
@@ -281,7 +282,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-61 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
+62 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
 
 ---
 
@@ -318,6 +319,7 @@ Auth is split into three independent environment variables, each protecting a di
 - If a key is **not set**, a warning is logged at startup and requests to that surface are allowed through (suitable for local dev)
 - If a key **is set**, requests without a valid credential receive `401 UNAUTHORIZED`
 - Each key can be rotated independently without affecting the others
+- **Production mode:** when `NODE_ENV=production`, the server requires `AGENTGATE_REST_KEY`, `AGENTGATE_ADMIN_KEY`, and `AGENTGATE_MCP_KEY` to all be set. If any are missing, the server logs a fatal error and exits immediately
 
 ```
 AGENTGATE_REST_KEY=your-rest-secret
@@ -431,9 +433,9 @@ pm2 stop agentgate       # stop the server
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (61 tests)
+- **Testing:** Vitest (62 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
-- **CI:** GitHub Actions (runs on every push and PR to main)
+- **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
 - **Process manager:** pm2
 
@@ -447,12 +449,12 @@ pm2 stop agentgate       # stop the server
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring function
-- `test/` — 61 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
+- `test/` — 62 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases
 - `docs/manifesto.md` — "How I Built AgentGate" — the full story
-- `.github/workflows/ci.yml` — GitHub Actions CI (npm ci + npm test on every push/PR)
+- `.github/workflows/ci.yml` — GitHub Actions CI (build, lint, and test on every push/PR)
 - `AGENTS.md` — conventions for AI coding agents
 - `LICENSE` — MIT License
 
