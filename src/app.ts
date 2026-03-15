@@ -189,7 +189,15 @@ export function createApp(options: AppOptions = {}): AppInstance {
       rawBody,
       { requestId: request.id, endpoint: request.url }
     );
-    reply.status(201).send(service.createIdentity(body));
+    try {
+      reply.status(201).send(service.createIdentity(body));
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT") {
+        throw new AppError(409, "DUPLICATE_IDENTITY", "This public key is already registered");
+      }
+      throw err;
+    }
   });
 
   app.post("/v1/bonds/lock", async (request, reply) => {

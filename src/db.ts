@@ -19,7 +19,7 @@ export function createDatabase(filename: string): DatabaseHandle {
   db.exec(`
     CREATE TABLE IF NOT EXISTS identities (
       id TEXT PRIMARY KEY,
-      public_key TEXT NOT NULL,
+      public_key TEXT NOT NULL UNIQUE,
       agent_name TEXT,
       created_at TEXT NOT NULL
     );
@@ -91,6 +91,9 @@ export function createDatabase(filename: string): DatabaseHandle {
   } catch {
     // Column already exists — no-op
   }
+
+  // Migration: add unique index on public_key for existing databases created before the UNIQUE constraint
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS identities_public_key_unique ON identities(public_key)`);
 
   // Migration: add status column to existing databases that predate it
   try {

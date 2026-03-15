@@ -936,3 +936,28 @@ describe("nonce replay protection", () => {
     expect(second.statusCode).toBe(201);
   });
 });
+
+describe("identity registration", () => {
+  it("rejects duplicate public key registration with 409 DUPLICATE_IDENTITY", async () => {
+    const app = await buildApp();
+    const signer = createSigner();
+    const payload = { publicKey: signer.publicKey };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities"), "x-nonce": randomUUID() },
+      payload
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error).toBe("DUPLICATE_IDENTITY");
+  });
+});
