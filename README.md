@@ -286,7 +286,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-69 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP).
+70 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP).
 
 ---
 
@@ -456,7 +456,7 @@ pm2 stop agentgate       # stop the server
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (69 tests)
+- **Testing:** Vitest (70 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
@@ -472,7 +472,7 @@ pm2 stop agentgate       # stop the server
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring function
-- `test/` — 69 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
+- `test/` — 70 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases
