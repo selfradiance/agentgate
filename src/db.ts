@@ -14,6 +14,12 @@ export function createDatabase(filename: string): DatabaseHandle {
   }
 
   const db = new Database(filename);
+
+  // WAL mode allows concurrent reads while writing, improving performance
+  db.pragma("journal_mode = WAL");
+  // Wait up to 5 seconds when the database is locked instead of failing immediately
+  db.pragma("busy_timeout = 5000");
+
   db.pragma("foreign_keys = ON");
 
   db.exec(`
