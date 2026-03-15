@@ -2,13 +2,19 @@
 import { createLogger } from "./logger";
 const DEFAULT_TIMEOUT_MS = Number(process.env.AGENTGATE_HTTP_TIMEOUT_MS || 2500);
 const MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_MAX_RESPONSE_BYTES || 1_048_576);
-// Comma-separated list, optional (e.g. "localhost,127.0.0.1")
-// If not provided, we default to localhost-only.
+// Comma-separated list of host:port pairs, optional (e.g. "localhost:3000,127.0.0.1:8080")
+// If not provided, we default to localhost on ports 80 and 443 only.
 const ALLOWLIST_ENV = (process.env.AGENTGATE_HTTP_ALLOWLIST || "").trim();
 
 function buildAllowlist(): Set<string> {
   if (!ALLOWLIST_ENV) {
-    return new Set(["localhost", "127.0.0.1", "::1"]);
+    // Default: allow localhost on any port (development mode).
+    // In production, set AGENTGATE_HTTP_ALLOWLIST to restrict to specific host:port pairs.
+    return new Set([
+      "localhost:*",
+      "127.0.0.1:*",
+      "::1:*",
+    ]);
   }
   return new Set(
     ALLOWLIST_ENV
@@ -16,6 +22,10 @@ function buildAllowlist(): Set<string> {
       .map((s) => s.trim())
       .filter(Boolean)
   );
+}
+
+function defaultPort(protocol: string): string {
+  return protocol === "https:" ? "443" : "80";
 }
 
 export function assertUrlAllowed(rawUrl: string) {
@@ -52,19 +62,20 @@ export function assertUrlAllowed(rawUrl: string) {
     ? rawHost.slice(1, -1)
     : rawHost;
 
-  if (!allowlist.has(host)) {
+  const port = u.port || defaultPort(u.protocol);
+  const hostPort = `${host}:${port}`;
+  const hostWildcard = `${host}:*`;
+
+  if (!allowlist.has(hostPort) && !allowlist.has(hostWildcard)) {
     createLogger().warn("outbound HTTP blocked", {
       event: "outbound_blocked",
-      reason: "host_not_allowlisted",
-      host,
+      reason: "host_port_not_allowlisted",
+      hostPort,
     });
     throw new Error(
-      `Destination host not allowlisted: ${host}. Allowlist: ${Array.from(allowlist).join(", ")}`
+      `Destination not allowlisted: ${hostPort}. Allowlist: ${Array.from(allowlist).join(", ")}`
     );
   }
-
-  // Optional: block non-default ports unless explicitly allowlisted by host alone.
-  // (For now we allow any port on allowlisted host.)
 }
 
 export async function postJson(url: string, body: unknown): Promise<unknown> {

@@ -1228,11 +1228,11 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
 // ---------------------------------------------------------------------------
 
 describe("Attack 5.1 — localhost bypass via IPv6", () => {
-  it("allows the short-form ::1 (on the default allowlist)", () => {
+  it("allows the short-form ::1 on a default-allowlisted port", () => {
     // new URL("http://[::1]/").hostname === "[::1]" — WHATWG spec serialises
     // IPv6 addresses with brackets. assertUrlAllowed strips brackets before the
-    // allowlist lookup so "::1" matches the default allowlist entry correctly.
-    expect(() => assertUrlAllowed("http://[::1]:3000/")).not.toThrow();
+    // allowlist lookup so "::1:*" matches the default wildcard entry correctly.
+    expect(() => assertUrlAllowed("http://[::1]/")).not.toThrow();
   });
 
   it("allows the expanded-form IPv6 localhost — WHATWG URL normalises 0:0:0:0:0:0:0:1 to ::1", () => {
@@ -1289,6 +1289,46 @@ describe("Attack 5.4 — redirect to non-allowlisted host", () => {
     expect(() => assertUrlAllowed("http://evil.com/")).toThrow(/not allowlisted/);
     expect(() => assertUrlAllowed("http://internal-service/")).toThrow(/not allowlisted/);
     expect(() => assertUrlAllowed("https://169.254.169.254/latest/meta-data/")).toThrow(/not allowlisted/);
+  });
+});
+
+describe("Attack 5.5 — allowlisted host but non-allowlisted port", () => {
+  const originalAllowlist = process.env.AGENTGATE_HTTP_ALLOWLIST;
+
+  afterEach(() => {
+    if (originalAllowlist === undefined) {
+      delete process.env.AGENTGATE_HTTP_ALLOWLIST;
+    } else {
+      process.env.AGENTGATE_HTTP_ALLOWLIST = originalAllowlist;
+    }
+  });
+
+  it("blocks localhost on a non-allowlisted port when explicit host:port entries are used", async () => {
+    // Set a custom allowlist with specific host:port pairs (no wildcards).
+    // An attacker trying to reach a service on port 8080 should be blocked.
+    process.env.AGENTGATE_HTTP_ALLOWLIST = "localhost:80,localhost:443,127.0.0.1:80,127.0.0.1:443";
+    vi.resetModules();
+    const { assertUrlAllowed: freshAssert } = await import("../src/http.js");
+    expect(() => freshAssert("http://localhost:8080/")).toThrow(/not allowlisted/);
+    expect(() => freshAssert("http://127.0.0.1:9090/")).toThrow(/not allowlisted/);
+  });
+
+  it("allows localhost on an explicitly allowlisted port", async () => {
+    process.env.AGENTGATE_HTTP_ALLOWLIST = "localhost:80,localhost:443,127.0.0.1:80,127.0.0.1:443";
+    vi.resetModules();
+    const { assertUrlAllowed: freshAssert } = await import("../src/http.js");
+    // http defaults to port 80, https defaults to port 443.
+    expect(() => freshAssert("http://localhost/")).not.toThrow();
+    expect(() => freshAssert("https://localhost/")).not.toThrow();
+    expect(() => freshAssert("http://127.0.0.1/")).not.toThrow();
+    expect(() => freshAssert("https://127.0.0.1/")).not.toThrow();
+  });
+
+  it("allows any port on localhost with the default wildcard allowlist", () => {
+    // Default allowlist uses host:* wildcard entries for localhost.
+    expect(() => assertUrlAllowed("http://localhost:3000/")).not.toThrow();
+    expect(() => assertUrlAllowed("http://127.0.0.1:9999/")).not.toThrow();
+    expect(() => assertUrlAllowed("http://[::1]:5000/")).not.toThrow();
   });
 });
 
