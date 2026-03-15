@@ -110,11 +110,21 @@ export function createApp(options: AppOptions = {}): AppInstance {
   const requestStartTimes = new WeakMap<FastifyRequest, number>();
   const app = Fastify({ logger: false, genReqId: () => generateRequestId() });
 
+  const devMode = process.env.AGENTGATE_DEV_MODE === "true";
+
   if (!process.env.AGENTGATE_REST_KEY) {
-    createLogger().warn("AGENTGATE_REST_KEY is not set — REST API auth is disabled");
+    if (devMode) {
+      createLogger().warn("AGENTGATE_REST_KEY is not set — REST API auth is disabled (dev mode)");
+    } else {
+      createLogger().warn("AGENTGATE_REST_KEY is not set — requests will be rejected until it is configured");
+    }
   }
   if (!process.env.AGENTGATE_ADMIN_KEY) {
-    createLogger().warn("AGENTGATE_ADMIN_KEY is not set — admin endpoint auth is disabled");
+    if (devMode) {
+      createLogger().warn("AGENTGATE_ADMIN_KEY is not set — admin endpoint auth is disabled (dev mode)");
+    } else {
+      createLogger().warn("AGENTGATE_ADMIN_KEY is not set — admin requests will be rejected until it is configured");
+    }
   }
 
   // Require x-agentgate-key on POST routes using the appropriate key per context
@@ -122,8 +132,18 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (request.method !== "POST") return;
 
     const isAdmin = request.url.startsWith("/admin/");
+    const keyName = isAdmin ? "AGENTGATE_ADMIN_KEY" : "AGENTGATE_REST_KEY";
     const secret = isAdmin ? process.env.AGENTGATE_ADMIN_KEY : process.env.AGENTGATE_REST_KEY;
-    if (!secret) return;
+    if (!secret) {
+      if (devMode) return;
+      createLogger(request.id).error(`${keyName} is not set — rejecting request (set AGENTGATE_DEV_MODE=true to skip auth)`, {
+        event: "auth_misconfigured",
+        endpoint: request.url,
+        missingKey: keyName,
+      });
+      reply.status(500).send({ error: "SERVER_MISCONFIGURED", message: `Server misconfigured: ${keyName} not set` });
+      return;
+    }
 
     const provided = getHeaderValue(request.headers["x-agentgate-key"]);
     const providedBuf = Buffer.from(provided ?? "");

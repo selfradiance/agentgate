@@ -34,15 +34,15 @@ async function main() {
     process.exit(1);
   }
 
-  if (process.env.NODE_ENV === "production") {
+  // Warn at startup if auth keys are missing and dev mode is off — requests will be rejected per-route
+  if (process.env.AGENTGATE_DEV_MODE !== "true") {
     const missing = ["AGENTGATE_REST_KEY", "AGENTGATE_ADMIN_KEY", "AGENTGATE_MCP_KEY"].filter(
       (key) => !process.env[key]
     );
     if (missing.length > 0) {
-      logger.error(
-        "FATAL: Running in production mode but missing required auth keys. Set AGENTGATE_REST_KEY, AGENTGATE_ADMIN_KEY, and AGENTGATE_MCP_KEY environment variables."
+      logger.warn(
+        `Auth keys not set: ${missing.join(", ")}. Requests to affected endpoints will be rejected. Set AGENTGATE_DEV_MODE=true to skip auth for local development.`
       );
-      process.exit(1);
     }
   }
 

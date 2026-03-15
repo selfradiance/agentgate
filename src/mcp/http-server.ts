@@ -25,7 +25,16 @@ function removeSession(sessionId: string) {
 function mcpAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const secret = process.env.AGENTGATE_MCP_KEY;
   if (!secret) {
-    next();
+    if (process.env.AGENTGATE_DEV_MODE === "true") {
+      next();
+      return;
+    }
+    createLogger().error("AGENTGATE_MCP_KEY is not set — rejecting request (set AGENTGATE_DEV_MODE=true to skip auth)", {
+      event: "auth_misconfigured",
+      endpoint: req.path,
+      missingKey: "AGENTGATE_MCP_KEY",
+    });
+    res.status(500).json({ error: "SERVER_MISCONFIGURED", message: "Server misconfigured: AGENTGATE_MCP_KEY not set" });
     return;
   }
   const provided = Array.isArray(req.headers["x-agentgate-key"])
@@ -48,13 +57,11 @@ export function startMcpHttpServer(port: number) {
   app.use(express.json({ limit: "1mb" }));
 
   if (!process.env.AGENTGATE_MCP_KEY) {
-    if (process.env.NODE_ENV === "production") {
-      createLogger().error(
-        "FATAL: Running in production mode but AGENTGATE_MCP_KEY is not set. Set the AGENTGATE_MCP_KEY environment variable."
-      );
-      process.exit(1);
+    if (process.env.AGENTGATE_DEV_MODE === "true") {
+      process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP auth is disabled (dev mode)\n");
+    } else {
+      process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP requests will be rejected until it is configured\n");
     }
-    process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP auth is disabled, all requests are allowed\n");
   }
 
   app.use("/mcp", mcpAuthMiddleware);
