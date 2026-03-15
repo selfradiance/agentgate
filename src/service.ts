@@ -452,6 +452,10 @@ export class IbpService {
       throw new AppError(409, "MARKET_ALREADY_RESOLVED", "Market has already been resolved");
     }
 
+    if (new Date(market.resolution_deadline).getTime() > Date.now()) {
+      throw new AppError(400, "MARKET_NOT_YET_RESOLVABLE", "Market cannot be resolved before its resolution deadline");
+    }
+
     const resolvedAt = new Date().toISOString();
 
     // Mark the market as resolved

@@ -20,7 +20,7 @@ describe("Prediction Market", () => {
     const bobBond = service.lockBond({ identityId: bob.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "market bet" });
 
     // Create a market
-    const market = service.createMarket({ question: "Will BTC hit 100k by Friday?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
+    const market = service.createMarket({ question: "Will BTC hit 100k by Friday?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
     expect(market.status).toBe("open");
 
     // Alice bets YES, Bob bets NO
@@ -60,7 +60,7 @@ describe("Prediction Market", () => {
   it("rejects double resolution of the same market", () => {
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
 
-    const market = service.createMarket({ question: "Will it rain tomorrow?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
+    const market = service.createMarket({ question: "Will it rain tomorrow?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
 
     // Resolve once — should work
     const result = service.resolveMarket(market.marketId, "yes");
@@ -74,8 +74,8 @@ describe("Prediction Market", () => {
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
     const bond = service.lockBond({ identityId: alice.identityId, amountCents: 10000, currency: "USD", ttlSeconds: 3600, reason: "multi-market test" });
 
-    const market1 = service.createMarket({ question: "Market 1?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
-    const market2 = service.createMarket({ question: "Market 2?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
+    const market1 = service.createMarket({ question: "Market 1?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
+    const market2 = service.createMarket({ question: "Market 2?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
 
     // Alice takes a position on each market
     await service.executeAction({
@@ -101,5 +101,11 @@ describe("Prediction Market", () => {
     const actions = service.getDashboardData().actions as any[];
     const m2Action = actions.find((a: any) => a.id === market2Pos.actionId);
     expect(m2Action.status).toBe("open");
+  });
+
+  it("rejects resolution before the deadline has passed", () => {
+    const market = service.createMarket({ question: "Future market?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
+
+    expect(() => service.resolveMarket(market.marketId, "yes")).toThrow("Market cannot be resolved before its resolution deadline");
   });
 });
