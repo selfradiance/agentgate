@@ -92,6 +92,7 @@ Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, 
 | `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
 | `RATE_LIMIT_EXCEEDED` | More than 10 executes in 60 seconds for this identity | Wait and retry, or spread actions across a longer window |
 | `IDENTITY_BANNED` | Identity has been banned (manually or after 3 malicious resolutions) | Contact the operator or use a different identity |
+| `SERVER_MISCONFIGURED` | Auth key not set and `AGENTGATE_DEV_MODE` is not `true` | Set the missing auth key or set `AGENTGATE_DEV_MODE=true` for local dev |
 
 For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 
@@ -132,7 +133,7 @@ Bonds support multiple concurrent actions. Each action reserves its own slice of
 
 ### Auto-Slash Sweeper
 
-A background sweeper runs every 60 seconds, checking for actions whose associated bond has expired while the action is still open. Any such action is automatically resolved as `malicious` — the bond is slashed using the same settlement logic as a manual malicious resolution. The sweeper also cleans up expired nonces (older than 5 minutes) on the same interval. Both run with clean shutdown on SIGINT/SIGTERM.
+A background sweeper runs every 60 seconds, checking for actions whose associated bond has expired while the action is still open. Any such action is automatically resolved as `malicious` — the bond is slashed using the same settlement logic as a manual malicious resolution. On the same 60-second interval, the server also cleans up expired nonces (older than 5 minutes) and expired rate-limit buckets (older than 60 seconds). All three run with clean shutdown on SIGINT/SIGTERM.
 
 ### Reputation Scoring
 
@@ -213,7 +214,7 @@ AgentGate includes a prediction market demo that illustrates multi-agent economi
 
 **How it works:**
 
-1. An operator creates a market with a yes/no question and a resolution deadline
+1. An operator creates a market with a yes/no question and a resolution deadline (must be a valid future ISO 8601 timestamp)
 2. Agents take positions by executing a `market.position` action against a locked bond, declaring a `side` of `yes` or `no`
 3. When the market resolves, all open positions are settled automatically — winners' bonds are released, losers' bonds are burned
 
@@ -277,7 +278,7 @@ npm install
 npm run restart
 ```
 
-This kills any old server process on port 3000 and starts fresh. Fastify REST API runs at http://127.0.0.1:3000, MCP HTTP server at http://127.0.0.1:3001/mcp, dashboard at http://127.0.0.1:3000/dashboard. The sweeper and nonce cleanup logs appear every 60 seconds. Database file is created automatically at `data/agentgate.sqlite` on first run, with automatic backups to `data/backups/` on each startup (keeps the 5 most recent).
+This kills any old server process on port 3000 and starts fresh. Fastify REST API runs at http://127.0.0.1:3000, MCP HTTP server at http://127.0.0.1:3001/mcp, dashboard at http://127.0.0.1:3000/dashboard. The sweeper, nonce cleanup, and bucket cleanup logs appear every 60 seconds. Database file is created automatically at `data/agentgate.sqlite` on first run, with automatic backups to `data/backups/` on each startup (keeps the 5 most recent).
 
 **Run tests:**
 
@@ -300,7 +301,8 @@ All POST endpoints require an `x-nonce` header. The server stores each nonce per
 The MCP HTTP endpoint (port 3001) is protected by a shared-secret header.
 
 - Set `AGENTGATE_MCP_KEY` in your `.env` file (loaded automatically via dotenv on startup)
-- If the key is **not set**, a warning is logged at startup and all requests are allowed through (suitable for local dev)
+- If the key is **not set** and `AGENTGATE_DEV_MODE` is not `true`, requests are rejected with `500 SERVER_MISCONFIGURED`
+- If the key is **not set** and `AGENTGATE_DEV_MODE=true`, auth is skipped (suitable for local dev)
 - If the key **is set**, any request to `/mcp` without a matching `x-agentgate-key` header receives a `401 UNAUTHORIZED` response
 
 `.env` entry:
@@ -319,12 +321,13 @@ Auth is split into three independent environment variables, each protecting a di
 | `AGENTGATE_ADMIN_KEY` | Admin endpoints (`/admin/ban-identity`, `/admin/unban-identity`) | `x-agentgate-key` header |
 | `AGENTGATE_DASHBOARD_KEY` | Dashboard (`/dashboard`) | HTTP Basic Auth (username `admin`, password = key value) |
 
-- If a key is **not set**, a warning is logged at startup and requests to that surface are allowed through (suitable for local dev)
+- **Auth is required by default.** If a key is **not set** and `AGENTGATE_DEV_MODE` is not `true`, requests to that surface are rejected with `500 SERVER_MISCONFIGURED`
+- If `AGENTGATE_DEV_MODE=true`, missing keys are allowed and auth is skipped for that surface (suitable for local dev)
 - If a key **is set**, requests without a valid credential receive `401 UNAUTHORIZED`
 - Each key can be rotated independently without affecting the others
-- **Production mode:** when `NODE_ENV=production`, the server requires `AGENTGATE_REST_KEY`, `AGENTGATE_ADMIN_KEY`, and `AGENTGATE_MCP_KEY` to all be set. If any are missing, the server logs a fatal error and exits immediately
 
 ```
+AGENTGATE_DEV_MODE=true              # skip auth enforcement for local dev (default: not set — auth required)
 AGENTGATE_REST_KEY=your-rest-secret
 AGENTGATE_ADMIN_KEY=your-admin-secret
 AGENTGATE_DASHBOARD_KEY=your-dashboard-secret
@@ -398,9 +401,19 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 **Post-v0.3.0 hardening (Session 20):**
 
 - Bond TTL capped at 24 hours (86400 seconds) — requests exceeding the cap are rejected with `400 TTL_TOO_LONG`
-- Action payload capped at 4096 characters — oversized payloads are rejected with `400 PAYLOAD_TOO_LARGE`
+- Action payload capped at 4096 bytes — oversized payloads are rejected with `400 PAYLOAD_TOO_LARGE`
 - SQLite WAL mode enabled for improved concurrent read performance
 - SQLite busy timeout set to 5 seconds — database operations wait instead of failing immediately when the database is locked
+
+**Post-v0.3.0 hardening (Session 21):**
+
+- **Fail-closed auth by default** — all auth keys (`AGENTGATE_REST_KEY`, `AGENTGATE_ADMIN_KEY`, `AGENTGATE_MCP_KEY`) are now required unless `AGENTGATE_DEV_MODE=true` is explicitly set. Missing keys return `500 SERVER_MISCONFIGURED` instead of silently skipping auth
+- **SQLite CHECK constraints** — database-level enforcement on bonds (`amount_cents >= 0`, `outstanding_exposure_cents >= 0`, `slashed_cents >= 0`, valid status enum), actions (`exposure_cents >= 0`, valid status enum), and identities (`status IN ('active', 'banned')`). Startup data validation catches violations in existing databases
+- **Rate-limit bucket cleanup** — expired `action_execute_buckets` entries (older than 60 seconds) are now pruned on the same 60-second interval as the sweeper and nonce cleanup
+- **Demo echo route gated** — `POST /v1/demo/echo` is only registered when `AGENTGATE_DEV_MODE=true`; returns 404 in production
+- **Market position filtering at DB level** — `resolveMarket()` now uses `json_extract(payload, '$.marketId')` in the SQL query instead of loading all open positions into memory
+- **Market deadline validation** — `resolutionDeadline` must be a valid future ISO 8601 timestamp (enforced via Zod `.refine()`)
+- **Payload size measured in bytes** — the 4096 limit now uses `Buffer.byteLength()` instead of `.length`, correctly measuring multi-byte characters
 
 ---
 
