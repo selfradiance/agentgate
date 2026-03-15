@@ -40,7 +40,13 @@ export const unbanIdentitySchema = z.object({
 
 export const createMarketSchema = z.object({
   question: z.string().trim().min(1, "question is required").max(500),
-  resolutionDeadline: z.string().trim().min(1, "resolutionDeadline is required")
+  resolutionDeadline: z.string().trim().min(1, "resolutionDeadline is required").refine(
+    (value) => {
+      const date = new Date(value);
+      return !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+    },
+    "resolutionDeadline must be a valid future ISO timestamp"
+  )
 });
 
 export const resolveMarketSchema = z.object({
