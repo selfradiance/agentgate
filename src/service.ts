@@ -461,21 +461,15 @@ export class IbpService {
       )
       .run({ id: marketId, outcome, resolved_at: resolvedAt });
 
-    // Find all open actions linked to this market
-    const positions = this.db
+    // Find all open actions linked to this market — filter at the database level
+    const marketPositions = this.db
       .prepare(
-        `SELECT * FROM actions WHERE action_type = 'market.position' AND status = 'open'`
+        `SELECT * FROM actions
+         WHERE action_type = 'market.position'
+           AND status = 'open'
+           AND json_extract(payload, '$.marketId') = @marketId`
       )
-      .all() as ActionRecord[];
-
-    const marketPositions = positions.filter((a) => {
-      try {
-        const payload = JSON.parse(a.payload ?? '{}');
-        return payload.marketId === marketId;
-      } catch {
-        return false;
-      }
-    });
+      .all({ marketId }) as ActionRecord[];
 
     let settledCount = 0;
 
