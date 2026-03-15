@@ -53,7 +53,7 @@ interface ResolveActionResponse {
   slashed_cents_delta?: number;
 }
 
-const IDENTITY_FILE = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../agent-identity.json');
+const IDENTITY_FILE = path.resolve(path.dirname(__filename), '../agent-identity.json');
 
 function base64UrlToBase64(value: string) {
   return Buffer.from(value, "base64url").toString("base64");
@@ -359,14 +359,14 @@ export class AgentAdapter {
   }
 
   async createMarket(question: string, resolutionDeadline: string) {
-    return this.signedRequest("POST", "/markets", {
+    return this.signedPost("/markets", {
       question,
       resolutionDeadline
     });
   }
 
   async resolveMarket(marketId: string, outcome: "yes" | "no") {
-    return this.signedRequest("POST", `/markets/${marketId}/resolve`, {
+    return this.signedPost(`/markets/${marketId}/resolve`, {
       outcome
     });
   }

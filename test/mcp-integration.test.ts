@@ -56,8 +56,9 @@ describe("MCP end-to-end", () => {
 
   it("create_identity returns an identityId", async () => {
     const result = await client.callTool({ name: "create_identity", arguments: {} });
-    expect(result.content).toHaveLength(1);
-    const item = result.content[0] as { type: string; text: string };
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content).toHaveLength(1);
+    const item = content[0];
     expect(item.type).toBe("text");
     const data = JSON.parse(item.text) as { identityId: string };
     expect(typeof data.identityId).toBe("string");
@@ -70,8 +71,9 @@ describe("MCP end-to-end", () => {
       name: "lock_bond",
       arguments: { amount_cents: 1000, ttl_seconds: 300, reason: "mcp-integration-test" }
     });
-    expect(result.content).toHaveLength(1);
-    const item = result.content[0] as { type: string; text: string };
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content).toHaveLength(1);
+    const item = content[0];
     expect(item.type).toBe("text");
     const data = JSON.parse(item.text) as { bondId: string; status: string };
     expect(typeof data.bondId).toBe("string");
@@ -90,8 +92,9 @@ describe("MCP end-to-end", () => {
         exposure_cents: 100
       }
     });
-    expect(result.content).toHaveLength(1);
-    const item = result.content[0] as { type: string; text: string };
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content).toHaveLength(1);
+    const item = content[0];
     expect(item.type).toBe("text");
     const data = JSON.parse(item.text) as { actionId: string; status: string };
     expect(typeof data.actionId).toBe("string");
@@ -105,8 +108,9 @@ describe("MCP end-to-end", () => {
       name: "resolve_action",
       arguments: { actionId, outcome: "success" }
     });
-    expect(result.content).toHaveLength(1);
-    const item = result.content[0] as { type: string; text: string };
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content).toHaveLength(1);
+    const item = content[0];
     expect(item.type).toBe("text");
     const data = JSON.parse(item.text) as {
       actionId: string;
@@ -127,8 +131,9 @@ describe("MCP end-to-end", () => {
       name: "get_reputation",
       arguments: { identityId }
     });
-    expect(result.content).toHaveLength(1);
-    const item = result.content[0] as { type: string; text: string };
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content).toHaveLength(1);
+    const item = content[0];
     expect(item.type).toBe("text");
     const data = JSON.parse(item.text) as {
       identityId: string;

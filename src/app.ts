@@ -100,7 +100,7 @@ export type AppInstance = FastifyInstance & {
   sweep(): number;
   sweepExpiredActions(): { slashedCount: number };
   cleanExpiredNonces(): { purgedCount: number };
-  getDashboardData(): { identities: unknown[]; bonds: unknown[]; actions: unknown[] };
+  getDashboardData(): { identities: unknown[]; bonds: unknown[]; actions: unknown[]; markets: unknown[] };
 };
 
 export function createApp(options: AppOptions = {}): AppInstance {

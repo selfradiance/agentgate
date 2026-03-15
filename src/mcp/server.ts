@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -168,7 +168,7 @@ export function createMcpServer(adapter: AgentAdapter): Server {
 
 // Connect over stdio when run directly (for Claude Desktop / MCP clients)
 const isMain = process.argv[1] !== undefined &&
-  fileURLToPath(import.meta.url) === new URL(process.argv[1], import.meta.url).pathname;
+  path.resolve(__filename) === path.resolve(process.argv[1]);
 
 if (isMain) {
   const adapter = new AgentAdapter(
