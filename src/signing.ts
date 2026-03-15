@@ -71,8 +71,8 @@ function createEd25519PrivateKey(publicKeyBase64: string, privateKeyBase64: stri
   });
 }
 
-export function buildSignedMessage(method: string, path: string, timestamp: string, body: unknown) {
-  return createHash("sha256").update(`${method}${path}${timestamp}${JSON.stringify(body)}`).digest();
+export function buildSignedMessage(nonce: string, method: string, path: string, timestamp: string, body: unknown) {
+  return createHash("sha256").update(`${nonce}${method}${path}${timestamp}${JSON.stringify(body)}`).digest();
 }
 
 export function isEd25519PublicKey(publicKeyBase64: string) {
@@ -93,6 +93,7 @@ export function isFreshTimestamp(timestamp: string, now = Date.now()) {
 
 export function verifyRequestSignature(
   publicKeyBase64: string,
+  nonce: string,
   method: string,
   path: string,
   timestamp: string,
@@ -106,7 +107,7 @@ export function verifyRequestSignature(
   }
 
   try {
-    return verify(null, buildSignedMessage(method, path, timestamp, body), createEd25519PublicKey(publicKeyBase64), signature);
+    return verify(null, buildSignedMessage(nonce, method, path, timestamp, body), createEd25519PublicKey(publicKeyBase64), signature);
   } catch {
     return false;
   }
@@ -115,6 +116,7 @@ export function verifyRequestSignature(
 export function signRequestSignature(
   publicKeyBase64: string,
   privateKeyBase64: string,
+  nonce: string,
   method: string,
   path: string,
   timestamp: string,
@@ -122,7 +124,7 @@ export function signRequestSignature(
 ) {
   const signature = sign(
     null,
-    buildSignedMessage(method, path, timestamp, body),
+    buildSignedMessage(nonce, method, path, timestamp, body),
     createEd25519PrivateKey(publicKeyBase64, privateKeyBase64)
   );
 

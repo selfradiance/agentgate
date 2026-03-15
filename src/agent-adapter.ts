@@ -167,14 +167,15 @@ async function registerIdentity(baseUrl: string, publicKey: string, privateKey: 
   const requestBody = { publicKey, ...(agentName ? { agentName } : {}) };
   const path = "/v1/identities";
   const timestamp = Date.now().toString();
-  const signatureBase64 = signRequestSignature(publicKey, privateKey, "POST", path, timestamp, requestBody);
+  const nonce = randomUUID();
+  const signatureBase64 = signRequestSignature(publicKey, privateKey, nonce, "POST", path, timestamp, requestBody);
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-agentgate-timestamp": timestamp,
       "x-agentgate-signature": signatureBase64,
-      "x-nonce": randomUUID()
+      "x-nonce": nonce
     },
     body: JSON.stringify(requestBody)
   });
@@ -260,9 +261,11 @@ export class AgentAdapter {
     const identity = this.identity!;
 
     const timestamp = Date.now().toString();
+    const nonce = randomUUID();
     const signatureBase64 = signRequestSignature(
       identity.publicKey,
       identity.privateKey,
+      nonce,
       "POST",
       path,
       timestamp,
@@ -275,7 +278,7 @@ export class AgentAdapter {
         "content-type": "application/json",
         "x-agentgate-timestamp": timestamp,
         "x-agentgate-signature": signatureBase64,
-        "x-nonce": randomUUID()
+        "x-nonce": nonce
       },
       body: JSON.stringify(body)
     });

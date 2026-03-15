@@ -16,12 +16,13 @@ function createSigner() {
   return { privateKey, publicKey: fromBase64Url(jwk.x) };
 }
 
-function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, url: string, timestamp = Date.now().toString()) {
+function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, url: string, timestamp = Date.now().toString(), nonce = randomUUID()) {
   const method = "POST";
-  const message = createHash("sha256").update(`${method}${url}${timestamp}${JSON.stringify(body)}`).digest();
+  const message = createHash("sha256").update(`${nonce}${method}${url}${timestamp}${JSON.stringify(body)}`).digest();
   return {
     "x-agentgate-timestamp": timestamp,
-    "x-agentgate-signature": sign(null, message, privateKey).toString("base64")
+    "x-agentgate-signature": sign(null, message, privateKey).toString("base64"),
+    "x-nonce": nonce
   };
 }
 
@@ -38,7 +39,7 @@ async function createIdentity(app: AppInstance) {
   const response = await app.inject({
     method: "POST",
     url: "/v1/identities",
-    headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities"), "x-nonce": randomUUID() },
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/identities") },
     payload
   });
   return { signer, identityId: response.json().identityId as string };
@@ -49,7 +50,7 @@ async function lockBond(app: AppInstance, signer: { privateKey: KeyObject }, ide
   return (await app.inject({
     method: "POST",
     url: "/v1/bonds/lock",
-    headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock"), "x-nonce": randomUUID() },
+    headers: { ...signHeaders(signer.privateKey, payload, "/v1/bonds/lock") },
     payload
   })).json().bondId as string;
 }
@@ -76,7 +77,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: "/v1/actions/execute",
       payload: actionBody,
-      headers: { ...signHeaders(signer.privateKey, actionBody, "/v1/actions/execute"), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, actionBody, "/v1/actions/execute") }
     });
     const actionId = executeResponse.json().actionId as string;
 
@@ -100,7 +101,7 @@ describe("sweepExpiredActions", () => {
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, `/v1/actions/${actionId}/resolve`), "x-nonce": randomUUID() }
+      headers: { ...signHeaders(signer.privateKey, resolveBody, `/v1/actions/${actionId}/resolve`) }
     });
     expect(resolveResponse.statusCode).toBe(409);
     expect(resolveResponse.json().error).toBe("ACTION_ALREADY_RESOLVED");

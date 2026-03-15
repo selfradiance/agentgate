@@ -54,6 +54,7 @@ function recordNonce(db: Database.Database, identityId: string, nonce: string, r
 
 function assertSignedRequest(
   publicKey: string,
+  nonce: string,
   method: string,
   path: string,
   timestampHeader: string | string[] | undefined,
@@ -84,7 +85,7 @@ function assertSignedRequest(
     throw new AppError(401, "INVALID_SIGNATURE", "Signature timestamp is invalid");
   }
 
-  if (!verifyRequestSignature(publicKey, method, path, timestamp, body, signature)) {
+  if (!verifyRequestSignature(publicKey, nonce, method, path, timestamp, body, signature)) {
     createLogger(context?.requestId).warn("signature verification failed", {
       event: "signature_failed",
       reason: "invalid_signature",
@@ -176,12 +177,13 @@ export function createApp(options: AppOptions = {}): AppInstance {
   });
 
   app.post("/v1/identities", async (request, reply) => {
-    getNonce(request.headers["x-nonce"]);
+    const nonce = getNonce(request.headers["x-nonce"]);
     const rawBody = request.body;
     const body = createIdentitySchema.parse(rawBody);
     // Proof-of-possession: verify the caller owns the private key for the public key being registered
     assertSignedRequest(
       body.publicKey,
+      nonce,
       request.method,
       request.url,
       request.headers["x-agentgate-timestamp"],
@@ -206,6 +208,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const body = lockBondSchema.parse(rawBody);
     assertSignedRequest(
       service.getIdentityPublicKey(body.identityId),
+      nonce,
       request.method,
       request.url,
       request.headers["x-agentgate-timestamp"],
@@ -223,6 +226,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const body = executeActionSchema.parse(rawBody);
     assertSignedRequest(
       service.getIdentityPublicKey(body.identityId),
+      nonce,
       request.method,
       request.url,
       request.headers["x-agentgate-timestamp"],
@@ -245,6 +249,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const identityId = service.getActionIdentityId(params.actionId);
     assertSignedRequest(
       service.getActionIdentityPublicKey(params.actionId),
+      nonce,
       request.method,
       request.url,
       request.headers["x-agentgate-timestamp"],
