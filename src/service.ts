@@ -167,7 +167,10 @@ export class IbpService {
         throw new AppError(400, "DESTINATION_BLOCKED", String(e?.message ?? e));
       }
 
-      // Store the result back into the payload for audit/debugging
+      // Store a sanitized version of the result for audit/debugging.
+      // Truncate the response body to 1024 characters and strip headers —
+      // the full result is still returned to the caller.
+      const sanitizedResult = this.sanitizeResultForStorage(result);
       this.db
         .prepare(
           `UPDATE actions
@@ -178,7 +181,7 @@ export class IbpService {
           id,
           payload: this.serializePayload({
             ...p,
-            result
+            result: sanitizedResult
           })
         });
     }
@@ -702,6 +705,38 @@ export class IbpService {
     }
 
     return JSON.stringify(payload);
+  }
+
+  /**
+   * Sanitizes an outbound HTTP result before persisting to the database.
+   * Truncates the response body to 1024 characters and strips any response
+   * headers, storing only the status code and truncated body.
+   */
+  private sanitizeResultForStorage(result: unknown): { statusCode?: number; body: string } {
+    const MAX_BODY_CHARS = 1024;
+
+    // Extract statusCode if result is an object with one
+    let statusCode: number | undefined;
+    if (result && typeof result === "object" && "statusCode" in result) {
+      statusCode = (result as { statusCode?: number }).statusCode;
+    }
+
+    // Serialize the result body (strip headers by not copying them)
+    let bodyStr: string;
+    if (result && typeof result === "object" && "body" in result) {
+      bodyStr = typeof (result as { body?: unknown }).body === "string"
+        ? (result as { body: string }).body
+        : JSON.stringify((result as { body: unknown }).body);
+    } else {
+      bodyStr = typeof result === "string" ? result : JSON.stringify(result);
+    }
+
+    // Truncate if needed
+    if (bodyStr.length > MAX_BODY_CHARS) {
+      bodyStr = bodyStr.slice(0, MAX_BODY_CHARS) + "[truncated]";
+    }
+
+    return statusCode !== undefined ? { statusCode, body: bodyStr } : { body: bodyStr };
   }
 
   private getBucketStart(timestampMs: number) {
