@@ -44,8 +44,8 @@ Returns an `identityId` (e.g., `id_abc123`).
 All state-changing requests must be signed. Headers required on every request:
 
 - `x-agentgate-timestamp` — current time in epoch milliseconds
-- `x-agentgate-signature` — Ed25519 signature over `sha256(method + path + timestamp + JSON.stringify(body))`
-- `x-nonce` — a unique string per request (UUID recommended); the server rejects duplicates per identity, providing replay protection on top of the timestamp window
+- `x-agentgate-signature` — Ed25519 signature over `sha256(nonce + method + path + timestamp + JSON.stringify(body))`
+- `x-nonce` — a unique string per request (UUID recommended); bound into the signed message AND stored server-side — the server rejects duplicates per identity, providing replay protection on top of the timestamp window
 
 ```bash
 curl -s http://127.0.0.1:3000/v1/bonds/lock \
@@ -86,7 +86,7 @@ Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, 
 
 | Error | Cause | Fix |
 |---|---|---|
-| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(method + path + timestamp + JSON.stringify(body))` with the correct private key |
+| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(nonce + method + path + timestamp + JSON.stringify(body))` with the correct private key |
 | `TIMESTAMP_EXPIRED` | Timestamp is older than 60 seconds | Use a fresh timestamp for each request |
 | `DUPLICATE_NONCE` | Same nonce reused by the same identity | Generate a fresh UUID for every request |
 | `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
@@ -107,7 +107,7 @@ For the full security posture, see the **[Threat Model](docs/threat-model.md)**.
 - Replay protection via timestamp validation (60-second window, 5-second future tolerance) AND nonce store (duplicate rejection per identity)
 - Named agent support: set `AGENTGATE_AGENT_NAME` env var to create separate identity files per agent (e.g., `agent-identity-trader.json`)
 
-Signed message format: `sha256(method + path + timestamp + JSON.stringify(body))`
+Signed message format: `sha256(nonce + method + path + timestamp + JSON.stringify(body))`
 
 Required headers: `x-agentgate-timestamp`, `x-agentgate-signature`, `x-nonce`
 
