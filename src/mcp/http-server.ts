@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -40,7 +40,9 @@ function mcpAuthMiddleware(req: express.Request, res: express.Response, next: ex
   const provided = Array.isArray(req.headers["x-agentgate-key"])
     ? req.headers["x-agentgate-key"][0]
     : req.headers["x-agentgate-key"];
-  if (!provided || provided !== secret) {
+  const providedBuf = Buffer.from(provided ?? "");
+  const secretBuf = Buffer.from(secret);
+  if (!provided || providedBuf.length !== secretBuf.length || !timingSafeEqual(providedBuf, secretBuf)) {
     createLogger().warn("MCP auth failed", {
       event: "auth_failed",
       endpoint: req.path,
