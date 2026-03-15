@@ -404,6 +404,14 @@ export class IbpService {
     return { purgedCount: result.changes };
   }
 
+  cleanExpiredBuckets(): { purgedCount: number } {
+    const cutoff = Date.now() - 60_000;
+    const result = this.db
+      .prepare(`DELETE FROM action_execute_buckets WHERE requested_at < @cutoff`)
+      .run({ cutoff });
+    return { purgedCount: result.changes };
+  }
+
   getDashboardData() {
     const identities = this.db.prepare(`SELECT * FROM identities`).all();
     const bonds = this.db.prepare(`SELECT * FROM bonds`).all();

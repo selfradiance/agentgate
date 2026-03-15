@@ -53,6 +53,8 @@ async function main() {
     logger.info(`sweeper: slashed ${result.slashedCount} expired actions`);
     const nonces = app.cleanExpiredNonces();
     logger.info(`nonce-cleanup: purged ${nonces.purgedCount} expired nonces`);
+    const buckets = app.cleanExpiredBuckets();
+    logger.info(`bucket-cleanup: purged ${buckets.purgedCount} expired rate-limit buckets`);
   }, SWEEP_INTERVAL_MS);
 
   const shutdown = async () => {

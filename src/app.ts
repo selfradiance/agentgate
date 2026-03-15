@@ -101,6 +101,7 @@ export type AppInstance = FastifyInstance & {
   sweep(): number;
   sweepExpiredActions(): { slashedCount: number };
   cleanExpiredNonces(): { purgedCount: number };
+  cleanExpiredBuckets(): { purgedCount: number };
   getDashboardData(): { identities: unknown[]; bonds: unknown[]; actions: unknown[]; markets: unknown[] };
 };
 
@@ -342,6 +343,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     sweep: () => service.sweepExpiredActions().slashedCount,
     sweepExpiredActions: () => service.sweepExpiredActions(),
     cleanExpiredNonces: () => service.cleanExpiredNonces(),
+    cleanExpiredBuckets: () => service.cleanExpiredBuckets(),
     getDashboardData: () => service.getDashboardData()
   });
 }
