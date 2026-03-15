@@ -213,26 +213,27 @@ export class IbpService {
   }
   resolveAction(actionId: string, input: ResolveActionInput) {
     const action = this.getActionOrThrow(actionId);
-    if (action.status !== "open") {
-      throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
-    }
 
     const bond = this.getBondOrThrow(action.bond_id);
     const settlement = this.calculateSettlement(action.exposure_cents, input.outcome);
     const resolvedAt = new Date().toISOString();
 
     const tx = this.db.transaction(() => {
-      this.db
+      const result = this.db
         .prepare(
           `UPDATE actions
            SET status = @status, resolved_at = @resolved_at
-           WHERE id = @id`
+           WHERE id = @id AND status = 'open'`
         )
         .run({
           id: actionId,
           status: input.outcome,
           resolved_at: resolvedAt
         });
+
+      if (result.changes === 0) {
+        throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
+      }
 
       // Subtract this action's exposure and accumulate settlement amounts
       this.db
