@@ -867,7 +867,7 @@ describe("nonce replay protection", () => {
   it("rejects duplicate nonce for same identity", async () => {
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const nonce = "replay-nonce-duplicate";
+    const nonce = "replay-nonce-dup-dup-duplicate";
 
     const firstPayload = { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "first" };
     const first = await app.inject({
@@ -897,7 +897,7 @@ describe("nonce replay protection", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: signHeaders(signer.privateKey, firstPayload, "/v1/bonds/lock", undefined, "aaa"),
+      headers: signHeaders(signer.privateKey, firstPayload, "/v1/bonds/lock", undefined, "aaa-aaa-aaa-aaa-aaa"),
       payload: firstPayload
     });
     expect(first.statusCode).toBe(201);
@@ -906,7 +906,7 @@ describe("nonce replay protection", () => {
     const second = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
-      headers: signHeaders(signer.privateKey, secondPayload, "/v1/bonds/lock", undefined, "bbb"),
+      headers: signHeaders(signer.privateKey, secondPayload, "/v1/bonds/lock", undefined, "bbb-bbb-bbb-bbb-bbb"),
       payload: secondPayload
     });
     expect(second.statusCode).toBe(201);
@@ -916,7 +916,7 @@ describe("nonce replay protection", () => {
     const app = await buildApp();
     const { identityId: identityId1, signer: signer1 } = await createIdentity(app);
     const { identityId: identityId2, signer: signer2 } = await createIdentity(app);
-    const nonce = "shared-nonce";
+    const nonce = "shared-nonce-shared-nonce-shared";
 
     const firstPayload = { identityId: identityId1, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "identity1" };
     const first = await app.inject({
