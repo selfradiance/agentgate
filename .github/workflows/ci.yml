@@ -15,4 +15,8 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Lint
+        run: npm run lint
       - run: npm run test
