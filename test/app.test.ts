@@ -1083,3 +1083,19 @@ describe("bond TTL cap", () => {
     expect(res.json().message).toMatch(/TTL exceeds maximum/);
   });
 });
+
+describe("action payload size cap", () => {
+  it("rejects execute request with payload exceeding 4096 characters", async () => {
+    const app = createApp();
+    const { signer, identityId } = await createIdentity(app);
+    const bondId = await lockBond(app, signer, identityId, 1000, "payload-size-test");
+
+    const oversizedPayload = { data: "x".repeat(4097) };
+    const body = { identityId, bondId, actionType: "test", payload: oversizedPayload, exposure_cents: 100 };
+    const res = await executeSignedAction(app, signer, body);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("PAYLOAD_TOO_LARGE");
+    expect(res.json().message).toMatch(/Payload exceeds maximum size/);
+  });
+});

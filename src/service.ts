@@ -27,6 +27,7 @@ interface SettledAmounts {
 }
 const RISK_MULTIPLIER = 1.2;
 const MAX_TTL_SECONDS = 86400; // 24 hours
+const MAX_PAYLOAD_CHARS = 4096;
 export class IbpService {
   constructor(private readonly db: Database.Database) { }
 
@@ -97,6 +98,15 @@ export class IbpService {
   async executeAction(input: ExecuteActionInput) {
     this.assertNotBanned(input.identityId);
     this.getIdentityOrThrow(input.identityId);
+
+    const payloadStr = input.payload !== undefined ? JSON.stringify(input.payload) : "";
+    if (payloadStr.length > MAX_PAYLOAD_CHARS) {
+      throw new AppError(
+        400,
+        "PAYLOAD_TOO_LARGE",
+        `Payload exceeds maximum size of ${MAX_PAYLOAD_CHARS} characters`
+      );
+    }
 
     const bond = this.getBondOrThrow(input.bondId);
     this.assertBondCanBackAction(bond, input.identityId);
