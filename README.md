@@ -118,6 +118,7 @@ Bonds are not single-use. Each bond represents reusable execution capacity.
 - **Capacity rule:** effective exposure = `ceil(declared_exposure × 1.2)`
 - **Constraint:** `outstanding_exposure_cents + effective_exposure <= amount_cents`
 - If exceeded → `INSUFFICIENT_BOND_CAPACITY`
+- **TTL cap:** maximum 86400 seconds (24 hours) — requests exceeding the cap are rejected
 - Bond status lifecycle: `active` → `occupied` (when action attached) → `released` / `burned` / `slashed`
 
 ### Exposure Lifecycle
@@ -125,8 +126,9 @@ Bonds are not single-use. Each bond represents reusable execution capacity.
 Bonds support multiple concurrent actions. Each action reserves its own slice of the bond's capacity, and resolving one action only releases that action's exposure — other open actions on the same bond are unaffected.
 
 - **Execute:** exposure reserved, `outstanding_exposure_cents` incremented, bond marked `occupied`
-- **Resolve (success/failed):** that action's exposure released; bond returns to `active` only when all open actions are resolved
-- **Resolve (malicious):** `amount_cents` reduced (clamped at zero), `slashed_cents` increased; bond `burned` only when no open actions remain
+- **Resolve (success/failed):** that action's exposure released; `refund_cents` accumulated on the bond; bond returns to `active` only when all open actions are resolved
+- **Resolve (malicious):** `amount_cents` reduced (clamped at zero), `slashed_cents` and `burned_cents` increased; bond `burned` only when no open actions remain
+- **Settlement accounting:** `refund_cents`, `burned_cents`, `slashed_cents`, and `closed_at` (ISO timestamp) are persisted on the bond record at resolution time
 
 ### Auto-Slash Sweeper
 
@@ -142,10 +144,11 @@ The dashboard shows per-identity scores with color coding (green for positive, r
 
 ### Outbound HTTP Safety (`market.http`)
 
-- Allowlist enforcement (default: localhost only)
-- http/https only
+- **Host:port allowlist** — each allowlist entry is a `host:port` pair (e.g., `localhost:3000`). Wildcard port supported (e.g., `localhost:*`). Default allowlist uses wildcards for local dev; production deployments should set `AGENTGATE_HTTP_ALLOWLIST` with explicit host:port pairs
+- http/https only (default port inferred: 80 for http, 443 for https)
 - Timeout (default 2500ms)
 - Max request size, max response size
+- **Response sanitization** — before persisting outbound response data to the database, headers are stripped and the body is truncated to 1024 characters (with a `[truncated]` marker). This only affects storage — the full response is still returned to the caller
 - **Redirect protection** — `fetch` is called with `redirect: "manual"`; every redirect hop has its `Location` header re-checked against the allowlist before following (max 5 hops). Prevents an allowlisted host from acting as a trampoline to a non-allowlisted host.
 - Errors wrapped as `DESTINATION_BLOCKED` or `REDIRECT_BLOCKED`
 
@@ -282,7 +285,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-62 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team).
+69 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP).
 
 ---
 
@@ -392,6 +395,13 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 - Bond locking (`POST /v1/bonds/lock`) now requires Ed25519 signature verification, matching the auth model on all other state-changing endpoints
 - Fastify upgraded to 5.8.2
 
+**Post-v0.3.0 hardening (Session 20):**
+
+- Bond TTL capped at 24 hours (86400 seconds) — requests exceeding the cap are rejected with `400 TTL_TOO_LONG`
+- Action payload capped at 4096 characters — oversized payloads are rejected with `400 PAYLOAD_TOO_LARGE`
+- SQLite WAL mode enabled for improved concurrent read performance
+- SQLite busy timeout set to 5 seconds — database operations wait instead of failing immediately when the database is locked
+
 ---
 
 ## Remote Deployment
@@ -433,7 +443,7 @@ pm2 stop agentgate       # stop the server
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (62 tests)
+- **Testing:** Vitest (69 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
@@ -449,7 +459,7 @@ pm2 stop agentgate       # stop the server
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring function
-- `test/` — 62 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
+- `test/` — 69 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases
