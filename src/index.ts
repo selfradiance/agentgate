@@ -34,6 +34,18 @@ async function main() {
     process.exit(1);
   }
 
+  if (process.env.NODE_ENV === "production") {
+    const missing = ["AGENTGATE_REST_KEY", "AGENTGATE_ADMIN_KEY", "AGENTGATE_MCP_KEY"].filter(
+      (key) => !process.env[key]
+    );
+    if (missing.length > 0) {
+      logger.error(
+        "FATAL: Running in production mode but missing required auth keys. Set AGENTGATE_REST_KEY, AGENTGATE_ADMIN_KEY, and AGENTGATE_MCP_KEY environment variables."
+      );
+      process.exit(1);
+    }
+  }
+
   const mcpHttpServer = startMcpHttpServer(3001);
 
   const sweepInterval = setInterval(() => {

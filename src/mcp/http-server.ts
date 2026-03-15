@@ -48,6 +48,12 @@ export function startMcpHttpServer(port: number) {
   app.use(express.json({ limit: "1mb" }));
 
   if (!process.env.AGENTGATE_MCP_KEY) {
+    if (process.env.NODE_ENV === "production") {
+      createLogger().error(
+        "FATAL: Running in production mode but AGENTGATE_MCP_KEY is not set. Set the AGENTGATE_MCP_KEY environment variable."
+      );
+      process.exit(1);
+    }
     process.stderr.write("WARNING: AGENTGATE_MCP_KEY is not set — MCP auth is disabled, all requests are allowed\n");
   }
 
