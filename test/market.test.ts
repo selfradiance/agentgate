@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createDatabase } from "../src/db";
-import { IbpService } from "../src/service";
+import { AgentGateService } from "../src/service";
 
 describe("Prediction Market", () => {
-  let service: IbpService;
+  let service: AgentGateService;
 
   beforeEach(() => {
     const { db } = createDatabase(":memory:");
-    service = new IbpService(db);
+    service = new AgentGateService(db);
   });
 
   it("happy path: create market, two positions, resolve — winner released, loser burned", async () => {

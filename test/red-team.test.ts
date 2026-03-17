@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, type AppInstance } from "../src/app";
 import { createDatabase, type DatabaseHandle } from "../src/db";
 import { assertUrlAllowed } from "../src/http.js";
-import { IbpService } from "../src/service";
+import { AgentGateService } from "../src/service";
 
 // ---------------------------------------------------------------------------
 // Helper: convert base64url (JWK format) → standard base64
@@ -204,7 +204,7 @@ describe("Attack 1.1 — over-commit exposure beyond bond capacity", () => {
 
   it("rejects an action whose effective exposure would exceed the bond's remaining capacity", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -262,7 +262,7 @@ describe("Attack 1.2 — rapid resolve-then-execute cycle", () => {
 
   it("fully releases exposure on each resolve with no leak or double-release across 5 cycles", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
 
@@ -323,7 +323,7 @@ describe("Attack 1.3 — resolve an already-resolved action", () => {
 
   it("rejects a second resolve on an already-settled action", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -384,7 +384,7 @@ describe("Attack 1.4 — execute against a burned/slashed bond", () => {
 
   it("rejects a new execute against a bond that has been slashed", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -453,7 +453,7 @@ describe("Attack 1.5A — zero exposure declaration", () => {
   // the bond itself (already locked), not any single action's declared exposure.
   it("accepts an action with exposure_cents 0 (zero-stake no-op)", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -500,7 +500,7 @@ describe("Attack 1.5B — negative exposure declaration", () => {
 
   it("rejects an action with negative exposure_cents", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -551,7 +551,7 @@ describe("Attack 1.6 — extremely large exposure value", () => {
 
   it("rejects an action whose exposure_cents is Number.MAX_SAFE_INTEGER", async () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -611,7 +611,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
     vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
 
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -662,7 +662,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
     vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
 
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -729,7 +729,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
     vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
 
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     // Note: the current implementation allows only one open action per bond —
     // after executeAction the bond status becomes 'occupied', which blocks a
@@ -801,7 +801,7 @@ describe("Attack 2.3 — expiry during execution", () => {
     vi.setSystemTime(new Date("2026-03-04T12:00:00.000Z"));
 
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
@@ -1351,7 +1351,7 @@ describe("validateInvariants", () => {
 
   it("passes all 8 invariants on a clean database after identity creation and bond lock", () => {
     const handle = buildDb();
-    const service = new IbpService(handle.db);
+    const service = new AgentGateService(handle.db);
 
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
 

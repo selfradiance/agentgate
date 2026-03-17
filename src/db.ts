@@ -73,6 +73,10 @@ export function createDatabase(filename: string): DatabaseHandle {
     CREATE INDEX IF NOT EXISTS action_execute_buckets_identity_requested_at_idx
       ON action_execute_buckets(identity_id, requested_at);
 
+    CREATE INDEX IF NOT EXISTS actions_bond_id_status_idx ON actions(bond_id, status);
+    CREATE INDEX IF NOT EXISTS actions_identity_id_idx ON actions(identity_id);
+    CREATE INDEX IF NOT EXISTS bonds_identity_id_idx ON bonds(identity_id);
+
     CREATE TABLE IF NOT EXISTS nonces (
       nonce TEXT NOT NULL,
       identity_id TEXT NOT NULL,

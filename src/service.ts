@@ -28,7 +28,7 @@ interface SettledAmounts {
 const RISK_MULTIPLIER = 1.2;
 const MAX_TTL_SECONDS = 86400; // 24 hours
 const MAX_PAYLOAD_BYTES = 4096;
-export class IbpService {
+export class AgentGateService {
   constructor(private readonly db: Database.Database) { }
 
   createIdentity(input: CreateIdentityInput) {

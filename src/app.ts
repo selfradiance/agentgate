@@ -16,7 +16,7 @@ import {
   unbanIdentitySchema
 } from "./schemas";
 import { isFreshTimestamp, verifyRequestSignature } from "./signing";
-import { IbpService } from "./service";
+import { AgentGateService } from "./service";
 
 export interface AppOptions {
   dbPath?: string;
@@ -107,7 +107,7 @@ export type AppInstance = FastifyInstance & {
 
 export function createApp(options: AppOptions = {}): AppInstance {
   const database = createDatabase(options.dbPath ?? "data/agentgate.sqlite");
-  const service = new IbpService(database.db);
+  const service = new AgentGateService(database.db);
   const requestStartTimes = new WeakMap<FastifyRequest, number>();
   const app = Fastify({ logger: false, genReqId: () => generateRequestId() });
 
