@@ -265,7 +265,11 @@ export function registerDashboard(app: AppInstance) {
   app.get("/dashboard", {
     preHandler: async (request, reply) => {
       const secret = process.env.AGENTGATE_DASHBOARD_KEY;
-      if (!secret) return;
+      if (!secret) {
+        if (process.env.AGENTGATE_DEV_MODE === "true") return;
+        reply.status(500).send("Server misconfigured: AGENTGATE_DASHBOARD_KEY not set");
+        return;
+      }
       const auth = request.headers.authorization;
       if (!auth || !auth.startsWith("Basic ")) {
         reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
