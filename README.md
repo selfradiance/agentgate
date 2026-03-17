@@ -24,6 +24,8 @@ Read the full story: **[How I Built AgentGate](docs/manifesto.md)**
 
 AgentGate works with any agent that can make HTTP requests. The flow is four steps: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
 
+> **Note:** The curl examples below assume `AGENTGATE_DEV_MODE=true` for local development (auth key enforcement is skipped). In production, add `-H 'x-agentgate-key: YOUR_KEY'` to every POST request.
+
 **1. Register an identity**
 
 Identity registration requires proof-of-possession — the caller must sign the request with the private key matching the public key being registered. This uses the same signature headers as all other state-changing endpoints:
@@ -386,7 +388,7 @@ AgentGate v0.2.0 was put through a structured red team process before release: 2
 | 4 | SQLite concurrency | 2 | Confirmed: `better-sqlite3` synchronous transactions serialize concurrent requests correctly |
 | 5 | Outbound HTTP | 9 | Fixed: redirect bypass SSRF (allowlisted host could 302 to non-allowlisted target); IPv6 bracket allowlist bug (`[::1]` vs `::1`) |
 
-**Total: 3 logic bugs fixed, 1 SSRF vulnerability fixed, 48 red team tests passing.**
+**Total: 3 logic bugs fixed, 1 SSRF vulnerability fixed, 29 red team tests passing.**
 
 Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan.md).
 
@@ -407,7 +409,7 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 
 **Post-v0.3.0 hardening (Session 21):**
 
-- **Fail-closed auth by default** — all auth keys (`AGENTGATE_REST_KEY`, `AGENTGATE_ADMIN_KEY`, `AGENTGATE_MCP_KEY`) are now required unless `AGENTGATE_DEV_MODE=true` is explicitly set. Missing keys return `500 SERVER_MISCONFIGURED` instead of silently skipping auth
+- **Fail-closed auth by default** — all auth keys (`AGENTGATE_REST_KEY`, `AGENTGATE_ADMIN_KEY`, `AGENTGATE_MCP_KEY`, `AGENTGATE_DASHBOARD_KEY`) are now required unless `AGENTGATE_DEV_MODE=true` is explicitly set. Missing keys return `500 SERVER_MISCONFIGURED` instead of silently skipping auth
 - **SQLite CHECK constraints** — database-level enforcement on bonds (`amount_cents >= 0`, `outstanding_exposure_cents >= 0`, `slashed_cents >= 0`, valid status enum), actions (`exposure_cents >= 0`, valid status enum), and identities (`status IN ('active', 'banned')`). Startup data validation catches violations in existing databases
 - **Rate-limit bucket cleanup** — expired `action_execute_buckets` entries (older than 60 seconds) are now pruned on the same 60-second interval as the sweeper and nonce cleanup
 - **Demo echo route gated** — `POST /v1/demo/echo` is only registered when `AGENTGATE_DEV_MODE=true`; returns 404 in production
