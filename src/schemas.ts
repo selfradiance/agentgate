@@ -7,11 +7,11 @@ export const createIdentitySchema = z.object({
     .trim()
     .min(1, "publicKey is required")
     .refine(isEd25519PublicKey, "publicKey must be a base64-encoded Ed25519 public key"),
-  agentName: z.string().trim().min(1).optional()
+  agentName: z.string().trim().min(1).max(64).optional()
 });
 
 export const lockBondSchema = z.object({
-  identityId: z.string().trim().min(1, "identityId is required"),
+  identityId: z.string().trim().min(1, "identityId is required").max(64),
   amountCents: z.number().int().positive("amountCents must be a positive integer"),
   currency: z.string().trim().min(3, "currency must be at least 3 characters").max(16),
   ttlSeconds: z.number().int().positive("ttlSeconds must be a positive integer"),
@@ -19,10 +19,10 @@ export const lockBondSchema = z.object({
 });
 
 export const executeActionSchema = z.object({
-  identityId: z.string().trim().min(1, "identityId is required"),
-  actionType: z.string().trim().min(1, "actionType is required"),
+  identityId: z.string().trim().min(1, "identityId is required").max(64),
+  actionType: z.string().trim().min(1, "actionType is required").max(128),
   payload: z.unknown().optional(),
-  bondId: z.string().trim().min(1, "bondId is required"),
+  bondId: z.string().trim().min(1, "bondId is required").max(64),
   exposure_cents: z.number().int().nonnegative("exposure_cents must be a non-negative integer").optional().default(0)
 });
 
