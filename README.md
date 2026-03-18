@@ -449,6 +449,8 @@ pm2 stop agentgate       # stop the server
 |---|---|
 | [agent-001-file-transform](https://github.com/selfradiance/agent-001-file-transform) | A bonded file-transform agent that accepts a task contract, executes a CSV-to-JSON transformation, verifies the result against a SHA-256 hash, and resolves through AgentGate. First agent in the single-task sandboxed agent pattern. |
 
+Read the writeup: [What Happens When an AI Agent Has to Post Collateral Before It Acts?](https://medium.com/@selfradiance/what-happens-when-an-ai-agent-has-to-post-collateral-before-it-acts-28e098198936)
+
 ---
 
 ## Tech Stack
