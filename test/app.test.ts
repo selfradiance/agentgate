@@ -1068,7 +1068,7 @@ describe("bond settlement fields", () => {
 
 describe("bond TTL cap", () => {
   it("rejects bond with ttl_seconds exceeding 86400", async () => {
-    const app = createApp();
+    const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
 
     const payload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 86401, reason: "too long" };
@@ -1087,7 +1087,7 @@ describe("bond TTL cap", () => {
 
 describe("action payload size cap", () => {
   it("rejects execute request with payload exceeding 4096 characters", async () => {
-    const app = createApp();
+    const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
     const bondId = await lockBond(app, signer, identityId, 1000, "payload-size-test");
 
