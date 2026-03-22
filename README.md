@@ -448,9 +448,14 @@ pm2 stop agentgate       # stop the server
 | Agent | Description |
 |---|---|
 | [agent-001-file-transform](https://github.com/selfradiance/agent-001-file-transform) | A bonded file-transform agent that accepts a task contract, executes a CSV-to-JSON transformation, verifies the result against a SHA-256 hash, and resolves through AgentGate. First agent in the single-task sandboxed agent pattern. |
+| [agent-002-file-guardian](https://github.com/selfradiance/agent-002-file-guardian) | A bonded file guardian that watches a directory, intercepts changes, verifies them via configurable commands, and slashes the bond if verification fails. Proves command-based verification in the bond loop. |
+| [agent-003-email-rewriter](https://github.com/selfradiance/agent-003-email-rewriter) | A bonded email rewriter that calls Claude to rewrite an email, then presents the result to a human for approve/reject judgment. Proves human-in-the-loop verification in the bond loop. |
 | [agent-004-red-team](https://github.com/selfradiance/agent-004-red-team) | A bonded red team simulator that attacks AgentGate from the outside over HTTP. Three stages: static (15 predefined attacks), adaptive (Claude-powered strategist picks from 48 scenarios across 12 categories), and recursive (Claude generates novel attack code executed in a sandboxed child process). All attacks run externally — no direct database access. v0.3.0 shipped. |
 
-Read the writeup: [What Happens When an AI Agent Has to Post Collateral Before It Acts?](https://medium.com/@selfradiance/what-happens-when-an-ai-agent-has-to-post-collateral-before-it-acts-28e098198936)
+Read the writeups:
+- [What Happens When an AI Agent Has to Post Collateral Before It Acts?](https://medium.com/@selfradiance/what-happens-when-an-ai-agent-has-to-post-collateral-before-it-acts-28e098198936)
+- [What If Your AI Coder Had Skin in the Game?](https://medium.com/@selfradiance/what-if-your-ai-coder-had-skin-in-the-game-ee10664d475c) (Agent 002)
+- Agent 003 writeup submitted to Coding Nexus on Medium (pending review)
 
 ---
 
