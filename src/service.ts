@@ -441,6 +441,11 @@ export class AgentGateService {
     return { slashedCount };
   }
 
+  // Nonce TTL is intentionally 5 minutes — longer than the 60-second signature
+  // freshness window (see signing.ts maxSignatureAgeMs). Signatures expire after
+  // 60s, but nonces must live longer to guarantee dedup: a nonce submitted at
+  // T+59s (just within the signature window) must still be present at T+60s to
+  // reject a replay. The 5-minute TTL provides a comfortable margin.
   cleanExpiredNonces(): { purgedCount: number } {
     const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
     const result = this.db

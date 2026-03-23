@@ -18,6 +18,11 @@ import {
 import { isFreshTimestamp, verifyRequestSignature } from "./signing";
 import { AgentGateService } from "./service";
 
+// NOTE: Error codes across the codebase (app.ts, http.ts, service.ts) are not
+// yet standardized into a single enum. A future cleanup pass could centralize
+// them, but renaming existing codes would break clients. New codes should follow
+// the SCREAMING_SNAKE_CASE convention used throughout.
+
 export interface AppOptions {
   dbPath?: string;
 }

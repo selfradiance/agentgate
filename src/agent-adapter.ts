@@ -33,26 +33,22 @@ interface GeneratedIdentity {
 
 interface LockBondResponse {
   bondId?: string;
-  bond_id?: string;
   status?: string;
   expiresAt?: string;
-  expires_at?: string;
 }
 
 interface ExecuteActionResponse {
-  action_id?: string;
   actionId?: string;
   status?: string;
-  reserved_exposure_cents?: number;
   reservedExposure?: number;
 }
 
 interface ResolveActionResponse {
-  action_id?: string;
-  status?: string;
-  bond_id?: string;
-  released_exposure_cents?: number;
-  slashed_cents_delta?: number;
+  actionId?: string;
+  outcome?: string;
+  refundCents?: number;
+  burnedCents?: number;
+  slashedCents?: number;
 }
 
 const IDENTITY_FILE = path.resolve(path.dirname(__filename), '../agent-identity.json');

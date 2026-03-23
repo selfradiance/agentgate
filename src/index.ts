@@ -57,6 +57,10 @@ async function main() {
     logger.info(`bucket-cleanup: purged ${buckets.purgedCount} expired rate-limit buckets`);
   }, SWEEP_INTERVAL_MS);
 
+  app.addHook("onClose", async () => {
+    clearInterval(sweepInterval);
+  });
+
   const shutdown = async () => {
     clearInterval(sweepInterval);
     await app.close();
