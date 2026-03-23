@@ -103,6 +103,49 @@ describe("Prediction Market", () => {
     expect(m2Action.status).toBe("open");
   });
 
+  it("rejects resolution when a position has a malformed payload — market stays open", async () => {
+    const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
+    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "malformed test" });
+
+    const market = service.createMarket({ question: "Malformed payload test?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
+
+    // Create a valid position
+    await service.executeAction({
+      identityId: alice.identityId,
+      actionType: "market.position",
+      payload: { marketId: market.marketId, side: "yes" },
+      bondId: bond.bondId,
+      exposure_cents: 500
+    });
+
+    // Inject a position with a malformed (non-JSON) payload directly into the database
+    const { db } = service as any;
+    db.prepare(
+      `INSERT INTO actions (id, identity_id, action_type, payload, bond_id, exposure_cents, status, created_at)
+       VALUES (@id, @identity_id, @action_type, @payload, @bond_id, @exposure_cents, @status, @created_at)`
+    ).run({
+      id: "action_malformed_test",
+      identity_id: alice.identityId,
+      action_type: "market.position",
+      payload: "{bad json<<<",
+      bond_id: bond.bondId,
+      exposure_cents: 500,
+      status: "open",
+      created_at: new Date().toISOString()
+    });
+
+    // Resolution should fail with INVALID_POSITION_PAYLOAD
+    expect(() => service.resolveMarket(market.marketId, "yes")).toThrow("malformed");
+
+    // Market must still be open — not stuck in resolved-but-unsettled state
+    const dashboard = service.getDashboardData();
+    const marketRow = (dashboard.markets as any[]).find((m: any) => m.id === market.marketId);
+    expect(marketRow.status).toBe("open");
+
+    // Retry should not throw MARKET_ALREADY_RESOLVED
+    expect(() => service.resolveMarket(market.marketId, "yes")).toThrow("malformed");
+  });
+
   it("rejects resolution before the deadline has passed", () => {
     const market = service.createMarket({ question: "Future market?", resolutionDeadline: new Date(Date.now() + 86400000).toISOString() });
 

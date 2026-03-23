@@ -456,16 +456,7 @@ export class AgentGateService {
       throw new AppError(400, "MARKET_NOT_YET_RESOLVABLE", "Market cannot be resolved before its resolution deadline");
     }
 
-    const resolvedAt = new Date().toISOString();
-
-    // Mark the market as resolved
-    this.db
-      .prepare(
-        `UPDATE markets SET status = 'resolved', outcome = @outcome, resolved_at = @resolved_at WHERE id = @id`
-      )
-      .run({ id: marketId, outcome, resolved_at: resolvedAt });
-
-    // Find all open actions linked to this market — filter at the database level
+    // Fetch all open positions for this market BEFORE marking resolved
     const marketPositions = this.db
       .prepare(
         `SELECT * FROM actions
@@ -475,20 +466,53 @@ export class AgentGateService {
       )
       .all({ marketId }) as ActionRecord[];
 
+    // Parse and validate ALL position payloads upfront — reject if any are malformed
+    const parsedPositions: Array<{ position: ActionRecord; side: string }> = [];
+    for (const position of marketPositions) {
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(position.payload ?? '{}');
+      } catch {
+        throw new AppError(
+          400,
+          "INVALID_POSITION_PAYLOAD",
+          `Position ${position.id} has a malformed payload that cannot be parsed`
+        );
+      }
+      const side = payload.side as string | undefined;
+      if (!side) {
+        throw new AppError(
+          400,
+          "INVALID_POSITION_PAYLOAD",
+          `Position ${position.id} is missing a 'side' field in its payload`
+        );
+      }
+      parsedPositions.push({ position, side });
+    }
+
+    // All payloads validated — mark resolved and settle in a single transaction
+    const resolvedAt = new Date().toISOString();
     let settledCount = 0;
 
-    for (const position of marketPositions) {
-      const payload = JSON.parse(position.payload ?? '{}');
-      const side = payload.side as string;
-      const positionOutcome = side === outcome ? 'success' : 'failed';
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE markets SET status = 'resolved', outcome = @outcome, resolved_at = @resolved_at WHERE id = @id`
+        )
+        .run({ id: marketId, outcome, resolved_at: resolvedAt });
 
-      try {
-        this.resolveAction(position.id, { outcome: positionOutcome });
-        settledCount++;
-      } catch {
-        // Action may have already been resolved — skip
+      for (const { position, side } of parsedPositions) {
+        const positionOutcome = side === outcome ? 'success' : 'failed';
+        try {
+          this.resolveAction(position.id, { outcome: positionOutcome });
+          settledCount++;
+        } catch {
+          // Action may have already been resolved — skip
+        }
       }
-    }
+    });
+
+    tx();
 
     return { marketId, outcome, settledCount };
   }
