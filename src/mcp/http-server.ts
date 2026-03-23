@@ -105,7 +105,10 @@ export function startMcpHttpServer(port: number) {
         });
 
         const adapter = new AgentAdapter(
-          process.env.AGENTGATE_BASE_URL ?? "http://127.0.0.1:3000"
+          process.env.AGENTGATE_BASE_URL ?? "http://127.0.0.1:3000",
+          undefined,
+          undefined,
+          process.env.AGENTGATE_REST_KEY
         );
         const server = createMcpServer(adapter);
         await server.connect(transport);

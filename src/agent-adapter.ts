@@ -162,21 +162,25 @@ function isAlreadyExistsError(status: number, body: unknown) {
   return combined.includes("already exists") || combined.includes("duplicate");
 }
 
-async function registerIdentity(baseUrl: string, publicKey: string, privateKey: string, agentName?: string): Promise<string> {
+async function registerIdentity(baseUrl: string, publicKey: string, privateKey: string, agentName?: string, restKey?: string): Promise<string> {
   const url = new URL("/v1/identities", baseUrl);
   const requestBody = { publicKey, ...(agentName ? { agentName } : {}) };
   const path = "/v1/identities";
   const timestamp = Date.now().toString();
   const nonce = randomUUID();
   const signatureBase64 = signRequestSignature(publicKey, privateKey, nonce, "POST", path, timestamp, requestBody);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-agentgate-timestamp": timestamp,
+    "x-agentgate-signature": signatureBase64,
+    "x-nonce": nonce
+  };
+  if (restKey) {
+    headers["x-agentgate-key"] = restKey;
+  }
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-agentgate-timestamp": timestamp,
-      "x-agentgate-signature": signatureBase64,
-      "x-nonce": nonce
-    },
+    headers,
     body: JSON.stringify(requestBody)
   });
 
@@ -220,9 +224,11 @@ export class AgentAdapter {
   private identity?: AgentIdentity;
   private identityPath: string;
   private agentName?: string;
+  private restKey?: string;
 
-  constructor(private baseUrl: string, identityPath?: string, agentName?: string) {
+  constructor(private baseUrl: string, identityPath?: string, agentName?: string, restKey?: string) {
     this.agentName = agentName;
+    this.restKey = restKey;
     if (identityPath) {
       this.identityPath = identityPath;
     } else if (agentName) {
@@ -241,7 +247,7 @@ export class AgentAdapter {
       return { identityId: identity.identityId };
     }
 
-    const identityId = await registerIdentity(this.baseUrl, identity.publicKey, identity.privateKey, this.agentName);
+    const identityId = await registerIdentity(this.baseUrl, identity.publicKey, identity.privateKey, this.agentName, this.restKey);
     const storedIdentity: AgentIdentity = { ...identity, identityId };
 
     await writeIdentityFile(this.identityPath, storedIdentity);
@@ -272,14 +278,19 @@ export class AgentAdapter {
       body
     );
 
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      "x-agentgate-timestamp": timestamp,
+      "x-agentgate-signature": signatureBase64,
+      "x-nonce": nonce
+    };
+    if (this.restKey) {
+      headers["x-agentgate-key"] = this.restKey;
+    }
+
     const response = await fetch(new URL(path, this.baseUrl), {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-agentgate-timestamp": timestamp,
-        "x-agentgate-signature": signatureBase64,
-        "x-nonce": nonce
-      },
+      headers,
       body: JSON.stringify(body)
     });
 
@@ -331,7 +342,11 @@ export class AgentAdapter {
 
   async getReputation(identityId: string): Promise<unknown> {
     const url = new URL(`/v1/identities/${identityId}`, this.baseUrl);
-    const response = await fetch(url);
+    const headers: Record<string, string> = {};
+    if (this.restKey) {
+      headers["x-agentgate-key"] = this.restKey;
+    }
+    const response = await fetch(url, { headers });
 
     if (!response.ok) {
       const errorBody = await parseErrorBody(response);
