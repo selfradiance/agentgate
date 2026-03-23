@@ -353,10 +353,12 @@ export class AgentAdapter {
   async resolveAction(
     actionId: string,
     outcome: "success" | "failed" | "malicious",
+    resolverId: string,
     details?: Record<string, unknown>
   ): Promise<ResolveActionResponse> {
     return this.signedPost(`/v1/actions/${actionId}/resolve`, {
       outcome,
+      resolverId,
       ...(details ? { details } : {})
     });
   }

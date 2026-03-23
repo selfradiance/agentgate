@@ -15,8 +15,7 @@ import type {
 import type {
   CreateIdentityInput,
   ExecuteActionInput,
-  LockBondInput,
-  ResolveActionInput
+  LockBondInput
 } from "./schemas";
 import { postJson } from "./http";
 interface SettledAmounts {
@@ -211,7 +210,7 @@ export class AgentGateService {
       result
     };
   }
-  resolveAction(actionId: string, input: ResolveActionInput) {
+  resolveAction(actionId: string, input: { outcome: ResolveOutcome }) {
     const action = this.getActionOrThrow(actionId);
 
     const bond = this.getBondOrThrow(action.bond_id);

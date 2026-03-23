@@ -1168,6 +1168,17 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
+    // Create a separate resolver identity
+    const resolverSigner = createSigner();
+    const resolverIdentityPayload = { publicKey: resolverSigner.publicKey };
+    const resolverIdRes = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: { ...signHeaders(resolverSigner.privateKey, resolverIdentityPayload, "/v1/identities") },
+      payload: resolverIdentityPayload
+    });
+    const { identityId: resolverId } = resolverIdRes.json() as { identityId: string };
+
     const bondPayload42 = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" };
     const bondResponse = await app.inject({
       method: "POST",
@@ -1193,7 +1204,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     // Execute B will fail with BOND_NOT_ACTIVE (occupied → released, never back to active).
     // The interesting assertion is that resolve A succeeds cleanly and the final exposure
     // accounting is correct regardless of how the event loop interleaves the two handlers.
-    const resolveBody = { outcome: "success" as const };
+    const resolveBody = { outcome: "success" as const, resolverId };
     const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const actionBBody = { identityId, bondId, actionType: "attack-4.2-B", exposure_cents: 200 };
 
@@ -1202,7 +1213,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
         method: "POST",
         url: resolveUrl,
         payload: resolveBody,
-        headers: { ...signHeaders(privateKey, resolveBody, resolveUrl) }
+        headers: { ...signHeaders(resolverSigner.privateKey, resolveBody, resolveUrl) }
       }),
       app.inject({
         method: "POST",

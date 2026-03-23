@@ -56,6 +56,23 @@ async function createIdentity(app: ReturnType<typeof createApp>) {
   };
 }
 
+async function resolveAction(
+  app: ReturnType<typeof createApp>,
+  resolverSigner: { privateKey: KeyObject },
+  resolverId: string,
+  actionId: string,
+  outcome: "success" | "failed" | "malicious"
+) {
+  const resolveBody = { outcome, resolverId };
+  const resolveUrl = `/v1/actions/${actionId}/resolve`;
+  return app.inject({
+    method: "POST",
+    url: resolveUrl,
+    payload: resolveBody,
+    headers: signHeaders(resolverSigner.privateKey, resolveBody, resolveUrl)
+  });
+}
+
 async function lockBond(
   app: ReturnType<typeof createApp>,
   signer: { privateKey: KeyObject },
@@ -149,6 +166,7 @@ describe("IBP state transitions", () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 1500, "resolution stats bond");
 
@@ -167,21 +185,13 @@ describe("IBP state transitions", () => {
     });
 
     expect(openStatsResponse.json()).toEqual({
-      totalIdentities: 1,
+      totalIdentities: 2,
       totalActions: 1,
       totalActiveBonds: 1,
       totalLockedCents: 1500
     });
 
-    const resolveBody = { outcome: "failed" as const };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-
-    await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-    });
+    await resolveAction(app, resolverSigner, resolverId, actionId, "failed");
 
     const resolvedStatsResponse = await app.inject({
       method: "GET",
@@ -189,7 +199,7 @@ describe("IBP state transitions", () => {
     });
 
     expect(resolvedStatsResponse.json()).toEqual({
-      totalIdentities: 1,
+      totalIdentities: 2,
       totalActions: 1,
       totalActiveBonds: 0,
       totalLockedCents: 0
@@ -200,6 +210,7 @@ describe("IBP state transitions", () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 1000, "serious intent");
 
@@ -216,14 +227,7 @@ describe("IBP state transitions", () => {
     const actionResponse = await executeSignedAction(app, signer, actionBody);
     const actionId = actionResponse.json().actionId as string;
 
-    const resolveBody = { outcome: "success" as const };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    const resolveResponse = await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-    });
+    const resolveResponse = await resolveAction(app, resolverSigner, resolverId, actionId, "success");
 
     expect(resolveResponse.statusCode).toBe(200);
     // Settlement is based on action exposure (ceil(500 × 1.2) = 600), not bond amount
@@ -261,6 +265,7 @@ describe("IBP state transitions", () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 999, "holding bond");
 
@@ -275,14 +280,7 @@ describe("IBP state transitions", () => {
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
     // Settlement is based on action exposure (ceil(500 × 1.2) = 600), not bond amount
-    const resolveBody = { outcome: "failed" as const };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    const response = await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-    });
+    const response = await resolveAction(app, resolverSigner, resolverId, actionId, "failed");
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
@@ -297,6 +295,7 @@ describe("IBP state transitions", () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 5000, "spam deterrence");
 
@@ -313,14 +312,7 @@ describe("IBP state transitions", () => {
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
     // Settlement is based on action exposure (ceil(2000 × 1.2) = 2400), not bond amount
-    const resolveBody = { outcome: "malicious" as const };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    const response = await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-    });
+    const response = await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
@@ -331,10 +323,54 @@ describe("IBP state transitions", () => {
     });
   });
 
+  it("rejects self-resolution — executor cannot resolve their own action", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 1000, "self-resolve test");
+
+    const actionBody = {
+      identityId,
+      actionType: "self-resolve-action",
+      payload: { note: "should not self-resolve" },
+      bondId,
+      exposure_cents: 500
+    };
+
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+
+    // Attempt to resolve with the same identity that executed the action
+    const selfResolveBody = { outcome: "success" as const, resolverId: identityId };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
+    const selfResolveResponse = await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: selfResolveBody,
+      headers: { ...signHeaders(signer.privateKey, selfResolveBody, resolveUrl) }
+    });
+
+    expect(selfResolveResponse.statusCode).toBe(403);
+    expect(selfResolveResponse.json().error).toBe("SELF_RESOLUTION_FORBIDDEN");
+
+    // Confirm a different identity CAN resolve the same action
+    const resolveResponse = await resolveAction(app, resolverSigner, resolverId, actionId, "success");
+    expect(resolveResponse.statusCode).toBe(200);
+    expect(resolveResponse.json()).toMatchObject({
+      actionId,
+      outcome: "success",
+      refundCents: 600,
+      burnedCents: 0,
+      slashedCents: 0
+    });
+  });
+
   it("rejects actions that reference inactive bonds", async () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 1200, "released bond");
 
@@ -348,14 +384,7 @@ describe("IBP state transitions", () => {
     const firstActionId = (await executeSignedAction(app, signer, firstActionBody)).json().actionId as string;
 
     // Resolve the action as success — bond becomes released
-    const resolveBody = { outcome: "success" as const };
-    const resolveUrl = `/v1/actions/${firstActionId}/resolve`;
-    await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-    });
+    await resolveAction(app, resolverSigner, resolverId, firstActionId, "success");
 
     const secondActionBody = {
       identityId,
@@ -653,6 +682,7 @@ describe("IBP state transitions", () => {
   it("multi-action bond accounting: resolving one action preserves other action's exposure", async () => {
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 2000, "multi-action bond");
 
@@ -671,14 +701,7 @@ describe("IBP state transitions", () => {
     expect(bondAfterBoth.status).toBe("occupied");
 
     // Resolve first action as success
-    const resolve1Body = { outcome: "success" as const };
-    const resolve1Url = `/v1/actions/${action1Id}/resolve`;
-    await app.inject({
-      method: "POST",
-      url: resolve1Url,
-      payload: resolve1Body,
-      headers: { ...signHeaders(signer.privateKey, resolve1Body, resolve1Url) }
-    });
+    await resolveAction(app, resolverSigner, resolverId, action1Id, "success");
 
     // After resolving one: outstanding should be 600, status still "occupied"
     const bondAfterFirst = app.db
@@ -688,14 +711,7 @@ describe("IBP state transitions", () => {
     expect(bondAfterFirst.status).toBe("occupied");
 
     // Resolve second action as success
-    const resolve2Body = { outcome: "success" as const };
-    const resolve2Url = `/v1/actions/${action2Id}/resolve`;
-    await app.inject({
-      method: "POST",
-      url: resolve2Url,
-      payload: resolve2Body,
-      headers: { ...signHeaders(signer.privateKey, resolve2Body, resolve2Url) }
-    });
+    await resolveAction(app, resolverSigner, resolverId, action2Id, "success");
 
     // After resolving both: outstanding should be 0, status "released"
     const bondAfterSecond = app.db
@@ -816,6 +832,7 @@ describe("Identity Governance", () => {
   it("auto-bans identity after 3 malicious resolutions", async () => {
     const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
 
     // Lock all 3 bonds upfront before any ban can trigger
     const bondId1 = await lockBond(app, signer, identityId, 10000, "malicious-bond-1");
@@ -826,14 +843,7 @@ describe("Identity Governance", () => {
       const actionBody = { identityId, actionType: "bad-action", bondId };
       const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
-      const resolveBody = { outcome: "malicious" as const };
-      const resolveUrl = `/v1/actions/${actionId}/resolve`;
-      await app.inject({
-        method: "POST",
-        url: resolveUrl,
-        payload: resolveBody,
-        headers: { ...signHeaders(signer.privateKey, resolveBody, resolveUrl) }
-      });
+      await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
     }
 
     const postBanPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "post-ban attempt" };
@@ -976,6 +986,8 @@ describe("bond settlement fields", () => {
     });
     const { identityId } = idRes.json() as { identityId: string };
 
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
     const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "settlement-test-success" };
     const bondRes = await app.inject({
       method: "POST",
@@ -994,14 +1006,7 @@ describe("bond settlement fields", () => {
     });
     const { actionId } = actionRes.json() as { actionId: string };
 
-    const resolvePayload = { outcome: "success" };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      headers: { ...signHeaders(signer.privateKey, resolvePayload, resolveUrl) },
-      payload: resolvePayload
-    });
+    await resolveAction(app, resolverSigner, resolverId, actionId, "success");
 
     const bond = app.db
       .prepare(`SELECT refund_cents, burned_cents, closed_at, status FROM bonds WHERE id = ?`)
@@ -1026,6 +1031,8 @@ describe("bond settlement fields", () => {
     });
     const { identityId } = idRes.json() as { identityId: string };
 
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
     const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "settlement-test-malicious" };
     const bondRes = await app.inject({
       method: "POST",
@@ -1044,14 +1051,7 @@ describe("bond settlement fields", () => {
     });
     const { actionId } = actionRes.json() as { actionId: string };
 
-    const resolvePayload = { outcome: "malicious" };
-    const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    await app.inject({
-      method: "POST",
-      url: resolveUrl,
-      headers: { ...signHeaders(signer.privateKey, resolvePayload, resolveUrl) },
-      payload: resolvePayload
-    });
+    await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
 
     const bond = app.db
       .prepare(`SELECT refund_cents, burned_cents, slashed_cents, closed_at, status FROM bonds WHERE id = ?`)

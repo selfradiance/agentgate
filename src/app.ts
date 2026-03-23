@@ -267,18 +267,21 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (!params.actionId) {
       throw new AppError(400, "VALIDATION_ERROR", "Action id is required");
     }
-    const identityId = service.getActionIdentityId(params.actionId);
+    const executorIdentityId = service.getActionIdentityId(params.actionId);
+    if (body.resolverId === executorIdentityId) {
+      throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");
+    }
     assertSignedRequest(
-      service.getActionIdentityPublicKey(params.actionId),
+      service.getIdentityPublicKey(body.resolverId),
       nonce,
       request.method,
       request.url,
       request.headers["x-agentgate-timestamp"],
       request.headers["x-agentgate-signature"],
       rawBody,
-      { identityId, requestId: request.id, endpoint: request.url }
+      { identityId: body.resolverId, requestId: request.id, endpoint: request.url }
     );
-    recordNonce(database.db, identityId, nonce, request.id);
+    recordNonce(database.db, body.resolverId, nonce, request.id);
     reply.send(service.resolveAction(params.actionId, body));
   });
 

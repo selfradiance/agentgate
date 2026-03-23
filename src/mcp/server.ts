@@ -26,7 +26,8 @@ const executeBondedActionSchema = z.object({
 
 const resolveActionSchema = z.object({
   actionId: z.string(),
-  outcome: z.enum(["success", "failed", "malicious"])
+  outcome: z.enum(["success", "failed", "malicious"]),
+  resolverId: z.string()
 });
 
 const getReputationSchema = z.object({
@@ -124,7 +125,7 @@ export function createMcpServer(adapter: AgentAdapter): Server {
 
       if (toolName === "resolve_action") {
         const input = resolveActionSchema.parse(args);
-        const result = await adapter.resolveAction(input.actionId, input.outcome);
+        const result = await adapter.resolveAction(input.actionId, input.outcome, input.resolverId);
         logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }

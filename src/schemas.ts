@@ -27,7 +27,8 @@ export const executeActionSchema = z.object({
 });
 
 export const resolveActionSchema = z.object({
-  outcome: z.enum(["success", "failed", "malicious"])
+  outcome: z.enum(["success", "failed", "malicious"]),
+  resolverId: z.string().trim().min(1, "resolverId is required").max(64)
 });
 
 export const banIdentitySchema = z.object({

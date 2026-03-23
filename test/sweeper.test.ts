@@ -96,12 +96,13 @@ describe("sweepExpiredActions", () => {
     expect(afterStats.totalActiveBonds).toBe(0);
 
     // Attempting to resolve the swept action returns ACTION_ALREADY_RESOLVED
-    const resolveBody = { outcome: "success" as const };
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+    const resolveBody = { outcome: "success" as const, resolverId };
     const resolveResponse = await app.inject({
       method: "POST",
       url: `/v1/actions/${actionId}/resolve`,
       payload: resolveBody,
-      headers: { ...signHeaders(signer.privateKey, resolveBody, `/v1/actions/${actionId}/resolve`) }
+      headers: { ...signHeaders(resolverSigner.privateKey, resolveBody, `/v1/actions/${actionId}/resolve`) }
     });
     expect(resolveResponse.statusCode).toBe(409);
     expect(resolveResponse.json().error).toBe("ACTION_ALREADY_RESOLVED");

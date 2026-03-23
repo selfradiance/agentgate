@@ -12,10 +12,13 @@ import { createMcpServer } from "../src/mcp/server";
 describe("MCP end-to-end", () => {
   let app: ReturnType<typeof createApp>;
   let client: Client;
+  let resolverClient: Client;
   let identityFilePath: string;
+  let resolverIdentityFilePath: string;
 
   // Shared across the sequential tool calls
   let identityId: string;
+  let resolverIdentityId: string;
   let bondId: string;
   let actionId: string;
 
@@ -35,22 +38,32 @@ describe("MCP end-to-end", () => {
     identityFilePath = path.join(os.tmpdir(), `agentgate-test-${randomUUID()}.json`);
     const adapter = new AgentAdapter(baseUrl, identityFilePath);
 
+    // Create a second adapter for resolution (different identity)
+    resolverIdentityFilePath = path.join(os.tmpdir(), `agentgate-test-resolver-${randomUUID()}.json`);
+    const resolverAdapter = new AgentAdapter(baseUrl, resolverIdentityFilePath);
+
     // Wire up the MCP server and a test client via in-process transports
     const mcpServer = createMcpServer(adapter);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-client", version: "0.1.0" }, { capabilities: {} });
 
+    // Wire up a second MCP server+client for the resolver
+    const resolverMcpServer = createMcpServer(resolverAdapter);
+    const [resolverClientTransport, resolverServerTransport] = InMemoryTransport.createLinkedPair();
+    resolverClient = new Client({ name: "resolver-client", version: "0.1.0" }, { capabilities: {} });
+
     await mcpServer.connect(serverTransport);
     await client.connect(clientTransport);
+    await resolverMcpServer.connect(resolverServerTransport);
+    await resolverClient.connect(resolverClientTransport);
   });
 
   afterAll(async () => {
     await client.close();
+    await resolverClient.close();
     await app.close();
-    try {
-      fs.unlinkSync(identityFilePath);
-    } catch {
-      // ignore — file may not exist if create_identity was never reached
+    for (const fp of [identityFilePath, resolverIdentityFilePath]) {
+      try { fs.unlinkSync(fp); } catch { /* ignore */ }
     }
   });
 
@@ -64,6 +77,12 @@ describe("MCP end-to-end", () => {
     expect(typeof data.identityId).toBe("string");
     expect(data.identityId.length).toBeGreaterThan(0);
     identityId = data.identityId;
+
+    // Create a separate resolver identity
+    const resolverResult = await resolverClient.callTool({ name: "create_identity", arguments: {} });
+    const resolverContent = resolverResult.content as Array<{ type: string; text: string }>;
+    const resolverData = JSON.parse(resolverContent[0].text) as { identityId: string };
+    resolverIdentityId = resolverData.identityId;
   });
 
   it("lock_bond returns a bondId", async () => {
@@ -104,9 +123,9 @@ describe("MCP end-to-end", () => {
   });
 
   it("resolve_action returns success outcome with settlement amounts", async () => {
-    const result = await client.callTool({
+    const result = await resolverClient.callTool({
       name: "resolve_action",
-      arguments: { actionId, outcome: "success" }
+      arguments: { actionId, outcome: "success", resolverId: resolverIdentityId }
     });
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content).toHaveLength(1);
