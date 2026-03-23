@@ -365,6 +365,12 @@ export function createApp(options: AppOptions = {}): AppInstance {
     return reply.code(200).send(service.resolveMarket(marketId, body.outcome));
   });
 
+  // Known limitations (accepted for current scale):
+  // - GET endpoints below are intentionally unauthenticated for transparency.
+  //   No rate limiting — acceptable at current scale; add if traffic grows.
+  // - /v1/identities/:id exposes reputation scores publicly by design.
+  // - Identity registration has no rate limit — bounded by signature compute cost.
+
   app.get("/health", async (_request, reply) => {
     reply.send({ status: "ok", timestamp: new Date().toISOString() });
   });

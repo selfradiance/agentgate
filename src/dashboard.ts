@@ -262,6 +262,11 @@ function buildHtml(data: { identities: unknown[]; bonds: unknown[]; actions: unk
 </html>`;
 }
 
+// Known limitations (accepted for portfolio-project scale):
+// - getDashboardData() is unbounded SELECT * — acceptable at current scale;
+//   add pagination/LIMIT if the dataset grows large.
+// - Dashboard is read-only (GET only) so no CSRF protection is needed.
+//   If admin actions are added, CSRF tokens must be implemented.
 export function registerDashboard(app: AppInstance) {
   app.get("/dashboard", {
     preHandler: async (request, reply) => {

@@ -179,7 +179,9 @@ export function startMcpHttpServer(port: number) {
       if (now - lastUsed > SESSION_IDLE_TIMEOUT_MS) {
         const transport = transports.get(sessionId);
         if (transport) {
-          transport.close().catch(() => {});
+          transport.close().catch((err) => {
+            createLogger().error("MCP transport close failed", { event: "transport_close_error", sessionId, error: String(err) });
+          });
         }
         removeSession(sessionId);
       }

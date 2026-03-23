@@ -21,6 +21,8 @@ function decodeBase64(value: string) {
   }
 }
 
+// Accepts both numeric Unix milliseconds and ISO date strings for flexibility.
+// Tightening to numeric-only could break existing clients — accepted as-is.
 function parseTimestampMs(timestamp: string) {
   const numericTimestamp = Number(timestamp);
   if (Number.isFinite(numericTimestamp)) {

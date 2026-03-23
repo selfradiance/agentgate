@@ -8,8 +8,8 @@ import { createLogger, generateRequestId } from "../logger";
 
 // ---- Tool input schemas ----
 const lockBondSchema = z.object({
-  amount_cents: z.coerce.number().int().positive(),
-  ttl_seconds: z.coerce.number().int().positive().default(3600),
+  amount_cents: z.number().int().positive(),
+  ttl_seconds: z.number().int().positive().default(3600),
   reason: z.string().default("mcp_lock_bond")
 });
 
@@ -21,7 +21,7 @@ const executeBondedActionSchema = z.object({
     try { return JSON.parse(val); }
     catch { throw new Error("Invalid payload: must be valid JSON"); }
   }, z.record(z.string(), z.unknown())),
-  exposure_cents: z.coerce.number().int().positive()
+  exposure_cents: z.number().int().positive()
 });
 
 const resolveActionSchema = z.object({

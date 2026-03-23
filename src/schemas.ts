@@ -12,7 +12,7 @@ export const createIdentitySchema = z.object({
 
 export const lockBondSchema = z.object({
   identityId: z.string().trim().min(1, "identityId is required").max(64),
-  amountCents: z.number().int().positive("amountCents must be a positive integer"),
+  amountCents: z.number().int().positive("amountCents must be a positive integer").max(1_000_000_000, "amountCents cannot exceed 1,000,000,000"),
   currency: z.string().trim().min(3, "currency must be at least 3 characters").max(16),
   ttlSeconds: z.number().int().positive("ttlSeconds must be a positive integer"),
   reason: z.string().trim().min(1, "reason is required").max(280)
@@ -23,7 +23,7 @@ export const executeActionSchema = z.object({
   actionType: z.string().trim().min(1, "actionType is required").max(128),
   payload: z.unknown().optional(),
   bondId: z.string().trim().min(1, "bondId is required").max(64),
-  exposure_cents: z.number().int().positive("exposure_cents must be a positive integer")
+  exposure_cents: z.number().int().positive("exposure_cents must be a positive integer").max(1_000_000_000, "exposure_cents cannot exceed 1,000,000,000")
 });
 
 export const resolveActionSchema = z.object({
@@ -45,9 +45,11 @@ export const createMarketSchema = z.object({
   resolutionDeadline: z.string().trim().min(1, "resolutionDeadline is required").refine(
     (value) => {
       const date = new Date(value);
-      return !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+      const ms = date.getTime();
+      const maxMs = Date.now() + 365 * 24 * 60 * 60 * 1000; // 1 year
+      return !Number.isNaN(ms) && ms > Date.now() && ms <= maxMs;
     },
-    "resolutionDeadline must be a valid future ISO timestamp"
+    "resolutionDeadline must be a valid future ISO timestamp no more than 1 year from now"
   )
 });
 
