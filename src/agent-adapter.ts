@@ -233,6 +233,9 @@ export class AgentAdapter {
   private restKey?: string;
 
   constructor(private baseUrl: string, identityPath?: string, agentName?: string, restKey?: string) {
+    if (agentName && !/^[a-zA-Z0-9_-]+$/.test(agentName)) {
+      throw new Error("Invalid agentName: must contain only alphanumeric characters, hyphens, or underscores");
+    }
     this.agentName = agentName;
     this.restKey = restKey;
     if (identityPath) {

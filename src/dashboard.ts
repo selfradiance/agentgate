@@ -51,7 +51,8 @@ function renderCell(col: string, val: unknown): string {
 
   if (col === "payload" && raw.length > 60) {
     const display = escapeHtml(raw.slice(0, 60) + "…");
-    return `<td title="${escapeHtml(raw)}">${display}</td>`;
+    const title = raw.length > 256 ? raw.slice(0, 256) + "..." : raw;
+    return `<td title="${escapeHtml(title)}">${display}</td>`;
   }
 
   if (col === "agent_name") {
