@@ -132,12 +132,16 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
       if (!location) {
         throw new Error("REDIRECT_BLOCKED: redirect response has no Location header");
       }
+      if (location.startsWith("//")) {
+        throw new Error("REDIRECT_BLOCKED: protocol-relative redirect is not allowed");
+      }
+      const nextUrl = new URL(location, url).toString();
       try {
-        assertUrlAllowed(location);
+        assertUrlAllowed(nextUrl);
       } catch (err: any) {
         throw new Error(`REDIRECT_BLOCKED: ${err.message}`);
       }
-      return postJsonWithDepth(location, body, depth + 1);
+      return postJsonWithDepth(nextUrl, body, depth + 1);
     }
 
     // Read response with size limit
