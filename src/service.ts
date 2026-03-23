@@ -155,6 +155,18 @@ export class AgentGateService {
       this.assertExecuteRateLimit(input.identityId, nowMs);
       this.assertProgressiveMinBond(input.identityId, bond.amount_cents, nowMs);
 
+      // Re-fetch and re-check the bond inside the transaction so the
+      // expiration check and the write are atomic.
+      const freshBond = this.getBondOrThrow(input.bondId);
+      this.assertBondCanBackAction(freshBond, input.identityId);
+      if (freshBond.outstanding_exposure_cents + effectiveExposureCents > freshBond.amount_cents) {
+        throw new AppError(
+          400,
+          "INSUFFICIENT_BOND_CAPACITY",
+          "Bond capacity exceeded for this action"
+        );
+      }
+
       this.db
         .prepare(
           `INSERT INTO actions (
@@ -182,7 +194,7 @@ export class AgentGateService {
   `)
         .run({
           delta: effectiveExposureCents,
-          bond_id: bond.id
+          bond_id: freshBond.id
         });
       this.recordExecuteAttempt(input.identityId, nowMs);
     });
