@@ -558,8 +558,18 @@ export class AgentGateService {
         try {
           this.resolveAction(position.id, { outcome: positionOutcome });
           settledCount++;
-        } catch {
-          // Action may have already been resolved — skip
+        } catch (err) {
+          if (err instanceof AppError && err.code === "ACTION_ALREADY_RESOLVED") {
+            // Expected: action was settled concurrently (e.g. by sweeper) — skip
+            continue;
+          }
+          createLogger().error("unexpected error settling market position", {
+            event: "market_position_settlement_failed",
+            marketId,
+            positionId: position.id,
+            error: String(err),
+          });
+          throw err;
         }
       }
     });
