@@ -270,10 +270,6 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (!params.actionId) {
       throw new AppError(400, "VALIDATION_ERROR", "Action id is required");
     }
-    const executorIdentityId = service.getActionIdentityId(params.actionId);
-    if (body.resolverId === executorIdentityId) {
-      throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");
-    }
     assertSignedRequest(
       service.getIdentityPublicKey(body.resolverId),
       nonce,
@@ -285,6 +281,10 @@ export function createApp(options: AppOptions = {}): AppInstance {
       { identityId: body.resolverId, requestId: request.id, endpoint: request.url }
     );
     recordNonce(database.db, body.resolverId, nonce, request.id);
+    const executorIdentityId = service.getActionIdentityId(params.actionId);
+    if (body.resolverId === executorIdentityId) {
+      throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");
+    }
     reply.send(service.resolveAction(params.actionId, body));
   });
 
@@ -321,7 +321,6 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const nonce = getNonce(req.headers["x-nonce"]);
     const rawBody = req.body;
     const body = createMarketSchema.parse(rawBody);
-    service.assertNotBanned(body.creatorId);
     assertSignedRequest(
       service.getIdentityPublicKey(body.creatorId),
       nonce,
@@ -333,6 +332,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
       { identityId: body.creatorId, requestId: req.id, endpoint: req.url }
     );
     recordNonce(database.db, body.creatorId, nonce, req.id);
+    service.assertNotBanned(body.creatorId);
     return reply.code(201).send(service.createMarket(body));
   });
 
@@ -341,11 +341,6 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const { marketId } = req.params as { marketId: string };
     const rawBody = req.body;
     const body = resolveMarketSchema.parse(rawBody);
-    const creatorId = service.getMarketCreatorId(marketId);
-    if (body.resolverId !== creatorId) {
-      throw new AppError(403, "NOT_MARKET_CREATOR", "Only the identity that created the market can resolve it");
-    }
-    service.assertNotBanned(body.resolverId);
     assertSignedRequest(
       service.getIdentityPublicKey(body.resolverId),
       nonce,
@@ -357,6 +352,11 @@ export function createApp(options: AppOptions = {}): AppInstance {
       { identityId: body.resolverId, requestId: req.id, endpoint: req.url }
     );
     recordNonce(database.db, body.resolverId, nonce, req.id);
+    const creatorId = service.getMarketCreatorId(marketId);
+    if (body.resolverId !== creatorId) {
+      throw new AppError(403, "NOT_MARKET_CREATOR", "Only the identity that created the market can resolve it");
+    }
+    service.assertNotBanned(body.resolverId);
     return reply.code(200).send(service.resolveMarket(marketId, body.outcome));
   });
 

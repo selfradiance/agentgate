@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 export function generateRequestId(): string {
-  return Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
+  return randomUUID().slice(0, 8);
 }
 
 export function createLogger(requestId?: string) {
