@@ -514,7 +514,11 @@ export class AgentGateService {
       throw new AppError(409, "MARKET_ALREADY_RESOLVED", "Market has already been resolved");
     }
 
-    if (new Date(market.resolution_deadline).getTime() > Date.now()) {
+    const deadlineMs = new Date(market.resolution_deadline).getTime();
+    if (Number.isNaN(deadlineMs)) {
+      throw new AppError(500, "INVALID_DEADLINE_FORMAT", "Market has a malformed resolution_deadline — manual investigation required");
+    }
+    if (deadlineMs > Date.now()) {
       throw new AppError(400, "MARKET_NOT_YET_RESOLVABLE", "Market cannot be resolved before its resolution deadline");
     }
 
