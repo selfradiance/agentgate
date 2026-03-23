@@ -288,7 +288,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-70 tests across 6 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP).
+94 tests across 10 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter).
 
 ---
 
@@ -429,6 +429,14 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 - **Agent adapter auto-init fix** — `AgentAdapter.lockBond()`, `executeBondedAction()`, and market helpers now auto-create/load the identity before building signed request bodies
 - **MCP log sanitization** — MCP tool completion logs now record result shape/keys instead of dumping full tool payloads or outbound response bodies to stderr
 
+**Comprehensive Security Audit (Codex + Claude Code cross-audit, 3 passes):**
+
+The full `src/` codebase was put through a structured security audit — 3 passes to clean, with each pass re-reading every source file and verifying prior fixes before looking for new issues.
+
+- **Pass 1:** 22 findings (6 critical/high, 10 medium, 6 low). All fixed: self-resolution bypass, market creator arbitrage, missing signature verification on market endpoints, adapter missing auth headers, 204 response crash, identity nonce replay, market resolution ordering, silent catch-all in settlement, bond expiration TOCTOU, dashboard auth weakness, protocol-relative redirect, malformed deadline NaN bypass, agent name path traversal, dashboard XSS via title length, weak request ID entropy, nonce recording order, SQLite error detection fragility, and documentation gaps.
+- **Pass 2:** 6 medium findings, 5 low. All fixed: upper bounds on exposure/bond amounts (1B cent cap), market deadline capped at 1 year, MCP transport close error logging, strict MCP schema types, and known-limitation documentation for accepted trade-offs.
+- **Pass 3:** Clean. No new findings. All prior fixes verified in place.
+
 ### How To Verify
 
 Run:
@@ -501,7 +509,7 @@ Read the writeups:
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (70 tests)
+- **Testing:** Vitest (94 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
@@ -517,7 +525,7 @@ Read the writeups:
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring function
-- `test/` — 70 tests across 6 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP)
+- `test/` — 94 tests across 10 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases
