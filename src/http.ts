@@ -128,7 +128,10 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
     // Read response with size limit
     const reader = res.body?.getReader();
     if (!reader) {
-      throw new Error("No response body");
+      if (!res.ok) {
+        throw new Error(`POST ${url} failed: HTTP ${res.status}`);
+      }
+      return "";
     }
 
     let totalBytes = 0;
@@ -166,7 +169,7 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
     }
 
     const text = new TextDecoder().decode(combined);
-    let json: unknown = undefined;
+    let json: unknown;
 
     try {
       json = text ? JSON.parse(text) : undefined;
@@ -178,7 +181,7 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
       throw new Error(`POST ${url} failed: HTTP ${res.status} ${text}`);
     }
 
-    return json;
+    return json ?? "";
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new Error(`POST ${url} timed out after ${DEFAULT_TIMEOUT_MS}ms`);

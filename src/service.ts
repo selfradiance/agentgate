@@ -795,11 +795,11 @@ export class AgentGateService {
         ? (result as { body: string }).body
         : JSON.stringify((result as { body: unknown }).body);
     } else {
-      bodyStr = typeof result === "string" ? result : JSON.stringify(result);
+      bodyStr = typeof result === "string" ? result : (JSON.stringify(result) ?? "");
     }
 
     // Truncate if needed
-    if (bodyStr.length > MAX_BODY_CHARS) {
+    if (bodyStr && bodyStr.length > MAX_BODY_CHARS) {
       bodyStr = bodyStr.slice(0, MAX_BODY_CHARS) + "[truncated]";
     }
 
