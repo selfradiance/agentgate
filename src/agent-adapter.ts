@@ -365,6 +365,7 @@ export class AgentAdapter {
 
   async createMarket(question: string, resolutionDeadline: string) {
     return this.signedPost("/markets", {
+      creatorId: this.identity!.identityId,
       question,
       resolutionDeadline
     });
@@ -372,7 +373,8 @@ export class AgentAdapter {
 
   async resolveMarket(marketId: string, outcome: "yes" | "no") {
     return this.signedPost(`/markets/${marketId}/resolve`, {
-      outcome
+      outcome,
+      resolverId: this.identity!.identityId
     });
   }
 }

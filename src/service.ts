@@ -420,23 +420,37 @@ export class AgentGateService {
     return { identities, bonds, actions, markets };
   }
 
-  createMarket(input: { question: string; resolutionDeadline: string }) {
+  createMarket(input: { creatorId: string; question: string; resolutionDeadline: string }) {
     const id = `market_${randomUUID()}`;
     const createdAt = new Date().toISOString();
 
     this.db
       .prepare(
-        `INSERT INTO markets (id, question, resolution_deadline, status, outcome, created_at)
-         VALUES (@id, @question, @resolution_deadline, 'open', NULL, @created_at)`
+        `INSERT INTO markets (id, creator_id, question, resolution_deadline, status, outcome, created_at)
+         VALUES (@id, @creator_id, @question, @resolution_deadline, 'open', NULL, @created_at)`
       )
       .run({
         id,
+        creator_id: input.creatorId,
         question: input.question,
         resolution_deadline: input.resolutionDeadline,
         created_at: createdAt
       });
 
     return { marketId: id, status: 'open' as const };
+  }
+
+  getMarketCreatorId(marketId: string): string {
+    const market = this.db
+      .prepare(`SELECT creator_id FROM markets WHERE id = ?`)
+      .get(marketId) as { creator_id: string | null } | undefined;
+    if (!market) {
+      throw new AppError(404, "MARKET_NOT_FOUND", "Market not found");
+    }
+    if (!market.creator_id) {
+      throw new AppError(400, "MARKET_MISSING_CREATOR", "Market has no creator identity");
+    }
+    return market.creator_id;
   }
 
   resolveMarket(marketId: string, outcome: 'yes' | 'no') {

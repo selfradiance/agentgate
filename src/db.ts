@@ -87,12 +87,14 @@ export function createDatabase(filename: string): DatabaseHandle {
 
     CREATE TABLE IF NOT EXISTS markets (
       id TEXT PRIMARY KEY,
+      creator_id TEXT,
       question TEXT NOT NULL,
       resolution_deadline TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
       outcome TEXT,
       created_at TEXT NOT NULL,
-      resolved_at TEXT
+      resolved_at TEXT,
+      FOREIGN KEY(creator_id) REFERENCES identities(id)
     );
   `);
 
@@ -109,6 +111,13 @@ export function createDatabase(filename: string): DatabaseHandle {
   // Migration: add status column to existing databases that predate it
   try {
     db.exec(`ALTER TABLE identities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  } catch {
+    // Column already exists — no-op
+  }
+
+  // Migration: add creator_id column to markets for existing databases
+  try {
+    db.exec(`ALTER TABLE markets ADD COLUMN creator_id TEXT REFERENCES identities(id)`);
   } catch {
     // Column already exists — no-op
   }

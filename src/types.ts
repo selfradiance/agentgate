@@ -49,6 +49,7 @@ export interface IdentityStats {
 
 export interface MarketRecord {
   id: string;
+  creator_id: string | null;
   question: string;
   resolution_deadline: string;
   status: 'open' | 'resolved';

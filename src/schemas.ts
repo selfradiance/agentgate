@@ -40,6 +40,7 @@ export const unbanIdentitySchema = z.object({
 });
 
 export const createMarketSchema = z.object({
+  creatorId: z.string().trim().min(1, "creatorId is required").max(64),
   question: z.string().trim().min(1, "question is required").max(500),
   resolutionDeadline: z.string().trim().min(1, "resolutionDeadline is required").refine(
     (value) => {
@@ -51,7 +52,8 @@ export const createMarketSchema = z.object({
 });
 
 export const resolveMarketSchema = z.object({
-  outcome: z.enum(["yes", "no"])
+  outcome: z.enum(["yes", "no"]),
+  resolverId: z.string().trim().min(1, "resolverId is required").max(64)
 });
 
 export type CreateIdentityInput = z.infer<typeof createIdentitySchema>;

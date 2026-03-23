@@ -1100,3 +1100,114 @@ describe("action payload size cap", () => {
     expect(res.json().message).toMatch(/Payload exceeds maximum size/);
   });
 });
+
+describe("market endpoint signature verification", () => {
+  it("rejects unsigned create market request", async () => {
+    const app = await buildApp();
+    const { identityId } = await createIdentity(app);
+
+    const body = {
+      creatorId: identityId,
+      question: "Will it rain?",
+      resolutionDeadline: new Date(Date.now() + 86400000).toISOString()
+    };
+
+    // No signature headers at all
+    const res = await app.inject({
+      method: "POST",
+      url: "/markets",
+      payload: body
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("MISSING_NONCE");
+  });
+
+  it("rejects unsigned resolve market request", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    const createBody = {
+      creatorId: identityId,
+      question: "Unsigned resolve test?",
+      resolutionDeadline: "2026-03-01T12:00:02.000Z"
+    };
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/markets",
+      payload: createBody,
+      headers: signHeaders(signer.privateKey, createBody, "/markets")
+    });
+    const { marketId } = createRes.json() as { marketId: string };
+
+    // Advance past the deadline
+    vi.setSystemTime(new Date("2026-03-01T12:00:03.000Z"));
+
+    const resolveBody = { outcome: "yes" as const, resolverId: identityId };
+
+    // No signature headers
+    const res = await app.inject({
+      method: "POST",
+      url: `/markets/${marketId}/resolve`,
+      payload: resolveBody
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("MISSING_NONCE");
+  });
+
+  it("rejects market resolution by a different identity than the creator", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+
+    const app = await buildApp();
+    const { signer: creatorSigner, identityId: creatorId } = await createIdentity(app);
+    const { signer: otherSigner, identityId: otherId } = await createIdentity(app);
+
+    // Creator creates the market
+    const createBody = {
+      creatorId,
+      question: "Cross-identity resolve test?",
+      resolutionDeadline: "2026-03-01T12:00:02.000Z"
+    };
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/markets",
+      payload: createBody,
+      headers: signHeaders(creatorSigner.privateKey, createBody, "/markets")
+    });
+    expect(createRes.statusCode).toBe(201);
+    const { marketId } = createRes.json() as { marketId: string };
+
+    // Advance past the deadline
+    vi.setSystemTime(new Date("2026-03-01T12:00:03.000Z"));
+
+    // Other identity tries to resolve — should be rejected
+    const resolveBody = { outcome: "yes" as const, resolverId: otherId };
+    const resolveUrl = `/markets/${marketId}/resolve`;
+    const resolveRes = await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: resolveBody,
+      headers: signHeaders(otherSigner.privateKey, resolveBody, resolveUrl)
+    });
+
+    expect(resolveRes.statusCode).toBe(403);
+    expect(resolveRes.json().error).toBe("NOT_MARKET_CREATOR");
+
+    // Creator can resolve successfully
+    const creatorResolveBody = { outcome: "yes" as const, resolverId: creatorId };
+    const creatorRes = await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: creatorResolveBody,
+      headers: signHeaders(creatorSigner.privateKey, creatorResolveBody, resolveUrl)
+    });
+
+    expect(creatorRes.statusCode).toBe(200);
+    expect(creatorRes.json()).toMatchObject({ marketId, outcome: "yes" });
+  });
+});

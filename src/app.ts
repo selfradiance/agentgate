@@ -315,16 +315,44 @@ export function createApp(options: AppOptions = {}): AppInstance {
   });
 
   app.post("/markets", async (req, reply) => {
-    const body = createMarketSchema.parse(req.body);
-    const result = service.createMarket(body);
-    return reply.code(201).send(result);
+    const nonce = getNonce(req.headers["x-nonce"]);
+    const rawBody = req.body;
+    const body = createMarketSchema.parse(rawBody);
+    assertSignedRequest(
+      service.getIdentityPublicKey(body.creatorId),
+      nonce,
+      req.method,
+      req.url,
+      req.headers["x-agentgate-timestamp"],
+      req.headers["x-agentgate-signature"],
+      rawBody,
+      { identityId: body.creatorId, requestId: req.id, endpoint: req.url }
+    );
+    recordNonce(database.db, body.creatorId, nonce, req.id);
+    return reply.code(201).send(service.createMarket(body));
   });
 
   app.post("/markets/:marketId/resolve", async (req, reply) => {
+    const nonce = getNonce(req.headers["x-nonce"]);
     const { marketId } = req.params as { marketId: string };
-    const body = resolveMarketSchema.parse(req.body);
-    const result = service.resolveMarket(marketId, body.outcome);
-    return reply.code(200).send(result);
+    const rawBody = req.body;
+    const body = resolveMarketSchema.parse(rawBody);
+    const creatorId = service.getMarketCreatorId(marketId);
+    if (body.resolverId !== creatorId) {
+      throw new AppError(403, "NOT_MARKET_CREATOR", "Only the identity that created the market can resolve it");
+    }
+    assertSignedRequest(
+      service.getIdentityPublicKey(body.resolverId),
+      nonce,
+      req.method,
+      req.url,
+      req.headers["x-agentgate-timestamp"],
+      req.headers["x-agentgate-signature"],
+      rawBody,
+      { identityId: body.resolverId, requestId: req.id, endpoint: req.url }
+    );
+    recordNonce(database.db, body.resolverId, nonce, req.id);
+    return reply.code(200).send(service.resolveMarket(marketId, body.outcome));
   });
 
   app.get("/health", async (_request, reply) => {
