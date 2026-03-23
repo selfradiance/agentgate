@@ -922,6 +922,34 @@ describe("nonce replay protection", () => {
     expect(second.statusCode).toBe(201);
   });
 
+  it("rejects replayed identity registration nonce on subsequent request", async () => {
+    const app = await buildApp();
+    const signer = createSigner();
+    const nonce = "identity-replay-nonce-test-1234";
+    const payload = { publicKey: signer.publicKey };
+
+    // Registration succeeds and records the nonce
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/identities",
+      headers: signHeaders(signer.privateKey, payload, "/v1/identities", undefined, nonce),
+      payload
+    });
+    expect(first.statusCode).toBe(201);
+    const { identityId } = first.json() as { identityId: string };
+
+    // Attempt to reuse the same nonce on a bond lock — should be rejected
+    const bondPayload = { identityId, amountCents: 500, currency: "USD", ttlSeconds: 300, reason: "replay" };
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/bonds/lock",
+      headers: signHeaders(signer.privateKey, bondPayload, "/v1/bonds/lock", undefined, nonce),
+      payload: bondPayload
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error).toBe("DUPLICATE_NONCE");
+  });
+
   it("allows same nonce from different identities", async () => {
     const app = await buildApp();
     const { identityId: identityId1, signer: signer1 } = await createIdentity(app);

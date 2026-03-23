@@ -212,8 +212,9 @@ export function createApp(options: AppOptions = {}): AppInstance {
       rawBody,
       { requestId: request.id, endpoint: request.url }
     );
+    let result;
     try {
-      reply.status(201).send(service.createIdentity(body));
+      result = service.createIdentity(body);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code;
       if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT") {
@@ -221,6 +222,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
       }
       throw err;
     }
+    recordNonce(database.db, result.identityId, nonce, request.id);
+    reply.status(201).send(result);
   });
 
   app.post("/v1/bonds/lock", async (request, reply) => {
