@@ -119,7 +119,11 @@ export class AgentGateService {
     }
 
     if (input.actionType === "market.position") {
-      this.parseMarketPositionPayload(input.payload, "market.position payload");
+      const pos = this.parseMarketPositionPayload(input.payload, "market.position payload");
+      const marketCreatorId = this.getMarketCreatorId(pos.marketId);
+      if (input.identityId === marketCreatorId) {
+        throw new AppError(403, "CREATOR_CANNOT_TAKE_POSITION", "The identity that created a market cannot take a position in it");
+      }
     }
 
     const payloadStr = input.payload !== undefined ? (JSON.stringify(input.payload) ?? "") : "";
