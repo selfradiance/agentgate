@@ -216,8 +216,8 @@ export function createApp(options: AppOptions = {}): AppInstance {
     try {
       result = service.createIdentity(body);
     } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT") {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("UNIQUE constraint failed") || message.includes("SQLITE_CONSTRAINT")) {
         throw new AppError(409, "DUPLICATE_IDENTITY", "This public key is already registered");
       }
       throw err;
