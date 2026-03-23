@@ -24,9 +24,25 @@ interface SettledAmounts {
   slashedCents: number;
   bondStatus: BondStatus;
 }
+
+interface BondTotals {
+  burned_cents: number;
+  slashed_cents: number;
+}
+
+interface MarketPositionPayload {
+  marketId: string;
+  side: "yes" | "no";
+}
+
 const RISK_MULTIPLIER = 1.2;
 const MAX_TTL_SECONDS = 86400; // 24 hours
 const MAX_PAYLOAD_BYTES = 4096;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export class AgentGateService {
   constructor(private readonly db: Database.Database) { }
 
@@ -98,7 +114,15 @@ export class AgentGateService {
     this.assertNotBanned(input.identityId);
     this.getIdentityOrThrow(input.identityId);
 
-    const payloadStr = input.payload !== undefined ? JSON.stringify(input.payload) : "";
+    if (input.exposure_cents <= 0) {
+      throw new AppError(400, "INVALID_EXPOSURE", "exposure_cents must be a positive integer");
+    }
+
+    if (input.actionType === "market.position") {
+      this.parseMarketPositionPayload(input.payload, "market.position payload");
+    }
+
+    const payloadStr = input.payload !== undefined ? (JSON.stringify(input.payload) ?? "") : "";
     if (Buffer.byteLength(payloadStr, "utf8") > MAX_PAYLOAD_BYTES) {
       throw new AppError(
         400,
@@ -110,9 +134,6 @@ export class AgentGateService {
     const bond = this.getBondOrThrow(input.bondId);
     this.assertBondCanBackAction(bond, input.identityId);
     const declaredExposureCents = input.exposure_cents;
-    if (declaredExposureCents < 0) {
-      throw new AppError(400, "INVALID_EXPOSURE", "exposure_cents cannot be negative");
-    }
     const effectiveExposureCents = Math.ceil(declaredExposureCents * RISK_MULTIPLIER);
     if (bond.outstanding_exposure_cents + effectiveExposureCents > bond.amount_cents) {
       throw new AppError(
@@ -272,9 +293,17 @@ export class AgentGateService {
         .get({ bond_id: bond.id }) as { remaining: number };
 
       if (remaining === 0) {
+        const totals = this.db
+          .prepare(`SELECT burned_cents, slashed_cents FROM bonds WHERE id = @id`)
+          .get({ id: bond.id }) as BondTotals;
+
         this.db
           .prepare(`UPDATE bonds SET status = @status, closed_at = @closed_at WHERE id = @id`)
-          .run({ id: bond.id, status: settlement.bondStatus, closed_at: resolvedAt });
+          .run({
+            id: bond.id,
+            status: this.getClosedBondStatus(totals),
+            closed_at: resolvedAt
+          });
       }
     });
 
@@ -421,6 +450,9 @@ export class AgentGateService {
   }
 
   createMarket(input: { creatorId: string; question: string; resolutionDeadline: string }) {
+    this.assertNotBanned(input.creatorId);
+    this.getIdentityOrThrow(input.creatorId);
+
     const id = `market_${randomUUID()}`;
     const createdAt = new Date().toISOString();
 
@@ -470,38 +502,28 @@ export class AgentGateService {
       throw new AppError(400, "MARKET_NOT_YET_RESOLVABLE", "Market cannot be resolved before its resolution deadline");
     }
 
+    if (market.creator_id) {
+      this.assertNotBanned(market.creator_id);
+    }
+
     // Fetch all open positions for this market BEFORE marking resolved
     const marketPositions = this.db
       .prepare(
         `SELECT * FROM actions
          WHERE action_type = 'market.position'
            AND status = 'open'
-           AND json_extract(payload, '$.marketId') = @marketId`
+           AND json_extract(
+             CASE WHEN json_valid(payload) THEN payload ELSE NULL END,
+             '$.marketId'
+           ) = @marketId`
       )
       .all({ marketId }) as ActionRecord[];
 
     // Parse and validate ALL position payloads upfront — reject if any are malformed
     const parsedPositions: Array<{ position: ActionRecord; side: string }> = [];
     for (const position of marketPositions) {
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(position.payload ?? '{}');
-      } catch {
-        throw new AppError(
-          400,
-          "INVALID_POSITION_PAYLOAD",
-          `Position ${position.id} has a malformed payload that cannot be parsed`
-        );
-      }
-      const side = payload.side as string | undefined;
-      if (!side) {
-        throw new AppError(
-          400,
-          "INVALID_POSITION_PAYLOAD",
-          `Position ${position.id} is missing a 'side' field in its payload`
-        );
-      }
-      parsedPositions.push({ position, side });
+      const payload = this.parseStoredMarketPositionPayload(position);
+      parsedPositions.push({ position, side: payload.side });
     }
 
     // All payloads validated — mark resolved and settle in a single transaction
@@ -565,7 +587,7 @@ export class AgentGateService {
     return result.changes > 0;
   }
 
-  private assertNotBanned(identityId: string) {
+  assertNotBanned(identityId: string) {
     const row = this.db
       .prepare(`SELECT status FROM identities WHERE id = ?`)
       .get(identityId) as { status: string } | undefined;
@@ -581,7 +603,7 @@ export class AgentGateService {
 
   private getIdentityOrThrow(identityId: string) {
     const record = this.db
-      .prepare(`SELECT id, public_key, created_at FROM identities WHERE id = ?`)
+      .prepare(`SELECT id, public_key, agent_name, status, created_at FROM identities WHERE id = ?`)
       .get(identityId) as IdentityRecord | undefined;
 
     if (!record) {
@@ -760,6 +782,56 @@ export class AgentGateService {
       slashedCents: amountCents,
       bondStatus: "slashed"
     };
+  }
+
+  private getClosedBondStatus(totals: BondTotals): BondStatus {
+    if (totals.slashed_cents > 0) {
+      return "slashed";
+    }
+
+    if (totals.burned_cents > 0) {
+      return "burned";
+    }
+
+    return "released";
+  }
+
+  private parseMarketPositionPayload(payload: unknown, label: string): MarketPositionPayload {
+    if (!isRecord(payload)) {
+      throw new AppError(400, "INVALID_POSITION_PAYLOAD", `${label} must be a JSON object`);
+    }
+
+    const marketId = typeof payload.marketId === "string" ? payload.marketId.trim() : "";
+    const side = payload.side;
+
+    if (!marketId) {
+      throw new AppError(400, "INVALID_POSITION_PAYLOAD", `${label} is missing marketId`);
+    }
+
+    if (side !== "yes" && side !== "no") {
+      throw new AppError(400, "INVALID_POSITION_PAYLOAD", `${label} must include side 'yes' or 'no'`);
+    }
+
+    return { marketId, side };
+  }
+
+  private parseStoredMarketPositionPayload(position: ActionRecord): MarketPositionPayload {
+    try {
+      return this.parseMarketPositionPayload(
+        JSON.parse(position.payload ?? "null"),
+        `Position ${position.id}`
+      );
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new AppError(
+        400,
+        "INVALID_POSITION_PAYLOAD",
+        `Position ${position.id} has a malformed payload that cannot be parsed`
+      );
+    }
   }
 
   private serializePayload(payload: unknown) {

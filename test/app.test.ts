@@ -142,7 +142,8 @@ describe("IBP state transitions", () => {
       identityId: secondIdentityId,
       actionType: "stats-action",
       payload: { note: "stats action" },
-      bondId: usedBondId
+      bondId: usedBondId,
+      exposure_cents: 100
     };
 
     await executeSignedAction(app, signer, actionBody);
@@ -174,7 +175,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "open-stats-action",
       payload: "open stats action",
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
@@ -378,7 +380,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "first-action",
       payload: "First action",
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const firstActionId = (await executeSignedAction(app, signer, firstActionBody)).json().actionId as string;
@@ -390,7 +393,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "second-action",
       payload: "Second action",
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const secondActionResponse = await executeSignedAction(app, signer, secondActionBody);
@@ -413,7 +417,8 @@ describe("IBP state transitions", () => {
       bondId,
       payload: { note: "different order" },
       actionType: "ordered-action",
-      identityId
+      identityId,
+      exposure_cents: 100
     };
 
     const response = await executeSignedAction(app, signer, actionBody);
@@ -436,7 +441,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "signed-action",
       payload: { note: "wrong signer" },
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const response = await app.inject({
@@ -504,7 +510,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "stale-action",
       payload: { note: "stale" },
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const response = await app.inject({
@@ -532,7 +539,8 @@ describe("IBP state transitions", () => {
       identityId,
       actionType: "future-action",
       payload: { note: "future" },
-      bondId
+      bondId,
+      exposure_cents: 100
     };
 
     const response = await app.inject({
@@ -562,7 +570,8 @@ describe("IBP state transitions", () => {
         identityId,
         bondId,
         actionType: "rate-limit-action",
-        payload: { attempt: index + 1 }
+        payload: { attempt: index + 1 },
+        exposure_cents: 100
       });
 
       expect(response.statusCode).toBe(201);
@@ -573,7 +582,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId,
       actionType: "rate-limit-action",
-      payload: { attempt: 11 }
+      payload: { attempt: 11 },
+      exposure_cents: 100
     });
 
     expect(response.statusCode).toBe(429);
@@ -596,7 +606,8 @@ describe("IBP state transitions", () => {
         identityId,
         bondId,
         actionType: "progressive-action",
-        payload: { attempt: index + 1 }
+        payload: { attempt: index + 1 },
+        exposure_cents: 100
       });
 
       expect(response.statusCode).toBe(201);
@@ -609,7 +620,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId: eleventhBondId,
       actionType: "progressive-action",
-      payload: { attempt: 11 }
+      payload: { attempt: 11 },
+      exposure_cents: 100
     });
 
     expect(eleventhResponse.statusCode).toBe(201);
@@ -619,7 +631,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId: tooSmallBondId,
       actionType: "progressive-action",
-      payload: { attempt: 12 }
+      payload: { attempt: 12 },
+      exposure_cents: 100
     });
 
     expect(tooSmallResponse.statusCode).toBe(409);
@@ -633,7 +646,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId: validMidBondId,
       actionType: "progressive-action",
-      payload: { attempt: 13 }
+      payload: { attempt: 13 },
+      exposure_cents: 100
     });
 
     expect(validMidResponse.statusCode).toBe(201);
@@ -646,7 +660,8 @@ describe("IBP state transitions", () => {
         identityId,
         bondId,
         actionType: "progressive-action",
-        payload: { attempt: 14 + index }
+        payload: { attempt: 14 + index },
+        exposure_cents: 100
       });
 
       expect(response.statusCode).toBe(201);
@@ -659,7 +674,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId: thresholdBondId,
       actionType: "progressive-action",
-      payload: { attempt: 22 }
+      payload: { attempt: 22 },
+      exposure_cents: 100
     });
 
     expect(thresholdResponse.statusCode).toBe(201);
@@ -669,7 +685,8 @@ describe("IBP state transitions", () => {
       identityId,
       bondId: tooSmallHighBondId,
       actionType: "progressive-action",
-      payload: { attempt: 23 }
+      payload: { attempt: 23 },
+      exposure_cents: 100
     });
 
     expect(tooSmallHighResponse.statusCode).toBe(409);
@@ -719,6 +736,42 @@ describe("IBP state transitions", () => {
       .get(bondId) as { outstanding_exposure_cents: number; status: string };
     expect(bondAfterSecond.outstanding_exposure_cents).toBe(0);
     expect(bondAfterSecond.status).toBe("released");
+  });
+
+  it("final bond status keeps the most severe settled outcome across multiple actions", async () => {
+    const app = await buildApp();
+    const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 3000, "mixed-outcome bond");
+
+    const action1Id = (await executeSignedAction(app, signer, {
+      identityId,
+      bondId,
+      actionType: "mixed-malicious",
+      payload: { n: 1 },
+      exposure_cents: 500
+    })).json().actionId as string;
+
+    const action2Id = (await executeSignedAction(app, signer, {
+      identityId,
+      bondId,
+      actionType: "mixed-success",
+      payload: { n: 2 },
+      exposure_cents: 500
+    })).json().actionId as string;
+
+    await resolveAction(app, resolverSigner, resolverId, action1Id, "malicious");
+    await resolveAction(app, resolverSigner, resolverId, action2Id, "success");
+
+    const bond = app.db
+      .prepare("SELECT status, refund_cents, burned_cents, slashed_cents FROM bonds WHERE id = ?")
+      .get(bondId) as { status: string; refund_cents: number; burned_cents: number; slashed_cents: number };
+
+    expect(bond.status).toBe("slashed");
+    expect(bond.refund_cents).toBe(600);
+    expect(bond.burned_cents).toBe(0);
+    expect(bond.slashed_cents).toBe(600);
   });
 
   it("failed outbound HTTP cleans up action and releases bond exposure", async () => {
@@ -793,8 +846,72 @@ describe("Identity Governance", () => {
       payload: { publicKey: signer.publicKey }
     });
 
-    const actionBody = { identityId, actionType: "test-action", bondId };
+    const actionBody = { identityId, actionType: "test-action", bondId, exposure_cents: 100 };
     const response = await executeSignedAction(app, signer, actionBody);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe("IDENTITY_BANNED");
+  });
+
+  it("banned identity cannot create a market", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    const marketBody = {
+      creatorId: identityId,
+      question: "Will banned creators be blocked?",
+      resolutionDeadline: new Date(Date.now() + 60_000).toISOString()
+    };
+    const response = await app.inject({
+      method: "POST",
+      url: "/markets",
+      headers: signHeaders(signer.privateKey, marketBody, "/markets"),
+      payload: marketBody
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe("IDENTITY_BANNED");
+  });
+
+  it("banned identity cannot resolve a market it created", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    const marketBody = {
+      creatorId: identityId,
+      question: "Will banned resolvers be blocked?",
+      resolutionDeadline: new Date(Date.now() + 60_000).toISOString()
+    };
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/markets",
+      headers: signHeaders(signer.privateKey, marketBody, "/markets"),
+      payload: marketBody
+    });
+    const { marketId } = createResponse.json() as { marketId: string };
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: signer.publicKey }
+    });
+
+    const resolveBody = { outcome: "yes" as const, resolverId: identityId };
+    const resolveUrl = `/markets/${marketId}/resolve`;
+    const response = await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      headers: signHeaders(signer.privateKey, resolveBody, resolveUrl),
+      payload: resolveBody
+    });
 
     expect(response.statusCode).toBe(403);
     expect(response.json().error).toBe("IDENTITY_BANNED");
@@ -840,7 +957,7 @@ describe("Identity Governance", () => {
     const bondId3 = await lockBond(app, signer, identityId, 10000, "malicious-bond-3");
 
     for (const bondId of [bondId1, bondId2, bondId3]) {
-      const actionBody = { identityId, actionType: "bad-action", bondId };
+      const actionBody = { identityId, actionType: "bad-action", bondId, exposure_cents: 100 };
       const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
       await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");

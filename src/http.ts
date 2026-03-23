@@ -1,23 +1,35 @@
 // src/http.ts
 import { createLogger } from "./logger";
-const DEFAULT_TIMEOUT_MS = Number(process.env.AGENTGATE_HTTP_TIMEOUT_MS || 2500);
-const MAX_RESPONSE_BYTES = Number(process.env.AGENTGATE_MAX_RESPONSE_BYTES || 1_048_576);
-// Comma-separated list of host:port pairs, optional (e.g. "localhost:3000,127.0.0.1:8080")
-// If not provided, we default to localhost on ports 80 and 443 only.
-const ALLOWLIST_ENV = (process.env.AGENTGATE_HTTP_ALLOWLIST || "").trim();
+
+const DEFAULT_TIMEOUT_MS = 2500;
+const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
+const DEFAULT_MAX_BODY_BYTES = 4096;
+const DEFAULT_ALLOWLIST = [
+  "localhost:80",
+  "localhost:443",
+  "127.0.0.1:80",
+  "127.0.0.1:443",
+  "::1:80",
+  "::1:443",
+];
+
+function readPositiveIntegerEnv(name: string, fallback: number) {
+  const raw = process.env[name];
+  const parsed = raw ? Number(raw) : fallback;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function buildAllowlist(): Set<string> {
-  if (!ALLOWLIST_ENV) {
-    // Default: allow localhost on any port (development mode).
-    // In production, set AGENTGATE_HTTP_ALLOWLIST to restrict to specific host:port pairs.
-    return new Set([
-      "localhost:*",
-      "127.0.0.1:*",
-      "::1:*",
-    ]);
+  const allowlistEnv = (process.env.AGENTGATE_HTTP_ALLOWLIST || "").trim();
+
+  if (!allowlistEnv) {
+    // Fail closed by default: allow only the standard loopback web ports.
+    // Any local dev server on a custom port must be explicitly allowlisted.
+    return new Set(DEFAULT_ALLOWLIST);
   }
+
   return new Set(
-    ALLOWLIST_ENV
+    allowlistEnv
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
@@ -83,6 +95,10 @@ export async function postJson(url: string, body: unknown): Promise<unknown> {
 }
 
 async function postJsonWithDepth(url: string, body: unknown, depth: number): Promise<unknown> {
+  const timeoutMs = readPositiveIntegerEnv("AGENTGATE_HTTP_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+  const maxResponseBytes = readPositiveIntegerEnv("AGENTGATE_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES);
+  const maxBodyBytes = readPositiveIntegerEnv("AGENTGATE_HTTP_MAX_BODY_BYTES", DEFAULT_MAX_BODY_BYTES);
+
   if (depth > 5) {
     throw new Error("REDIRECT_BLOCKED: too many redirects");
   }
@@ -90,15 +106,14 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
   assertUrlAllowed(url);
 
   // Serialize and size-check the request body before opening a connection
-  const serialized = JSON.stringify(body);
-  const maxBodyBytes = Number(process.env.AGENTGATE_HTTP_MAX_BODY_BYTES || 4096);
+  const serialized = JSON.stringify(body === undefined ? null : body);
   const bodyBytes = Buffer.byteLength(serialized, "utf8");
   if (bodyBytes > maxBodyBytes) {
     throw new Error(`Request body too large: ${bodyBytes} bytes (max ${maxBodyBytes})`);
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -144,16 +159,16 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
       if (value) {
         totalBytes += value.length;
 
-        if (totalBytes > MAX_RESPONSE_BYTES) {
+        if (totalBytes > maxResponseBytes) {
           await reader.cancel();
           createLogger().warn("outbound response too large", {
             event: "response_too_large",
             url,
             totalBytes,
-            maxBytes: MAX_RESPONSE_BYTES,
+            maxBytes: maxResponseBytes,
           });
           throw new Error(
-            `RESPONSE_TOO_LARGE: ${totalBytes} bytes received (max ${MAX_RESPONSE_BYTES})`
+            `RESPONSE_TOO_LARGE: ${totalBytes} bytes received (max ${maxResponseBytes})`
           );
         }
 
@@ -184,7 +199,7 @@ async function postJsonWithDepth(url: string, body: unknown, depth: number): Pro
     return json ?? "";
   } catch (err: any) {
     if (err?.name === "AbortError") {
-      throw new Error(`POST ${url} timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+      throw new Error(`POST ${url} timed out after ${timeoutMs}ms`);
     }
     throw err;
   } finally {

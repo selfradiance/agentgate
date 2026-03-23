@@ -103,7 +103,21 @@ describe("Prediction Market", () => {
     expect(m2Action.status).toBe("open");
   });
 
-  it("rejects resolution when a position has a malformed payload — market stays open", async () => {
+  it("rejects invalid market.position payloads during execution", async () => {
+    const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
+    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "payload validation" });
+    const market = service.createMarket({ creatorId: alice.identityId, question: "Validation test?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
+
+    await expect(service.executeAction({
+      identityId: alice.identityId,
+      actionType: "market.position",
+      payload: { marketId: market.marketId },
+      bondId: bond.bondId,
+      exposure_cents: 500
+    })).rejects.toMatchObject({ code: "INVALID_POSITION_PAYLOAD" });
+  });
+
+  it("ignores malformed legacy rows that do not contain valid market JSON", async () => {
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
     const bond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "malformed test" });
 
@@ -134,16 +148,14 @@ describe("Prediction Market", () => {
       created_at: new Date().toISOString()
     });
 
-    // Resolution should fail with INVALID_POSITION_PAYLOAD
-    expect(() => service.resolveMarket(market.marketId, "yes")).toThrow("malformed");
+    const result = service.resolveMarket(market.marketId, "yes");
+    expect(result.outcome).toBe("yes");
+    expect(result.settledCount).toBe(1);
 
-    // Market must still be open — not stuck in resolved-but-unsettled state
+    // Market resolution must still succeed for the valid position instead of failing globally.
     const dashboard = service.getDashboardData();
     const marketRow = (dashboard.markets as any[]).find((m: any) => m.id === market.marketId);
-    expect(marketRow.status).toBe("open");
-
-    // Retry should not throw MARKET_ALREADY_RESOLVED
-    expect(() => service.resolveMarket(market.marketId, "yes")).toThrow("malformed");
+    expect(marketRow.status).toBe("resolved");
   });
 
   it("rejects resolution before the deadline has passed", () => {

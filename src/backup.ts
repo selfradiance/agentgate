@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import Database from "better-sqlite3";
 
 const MAX_BACKUPS = 5;
 
-export function backupDatabase(sourcePath: string, backupDir: string): string {
+export async function backupDatabase(sourcePath: string, backupDir: string): Promise<string> {
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`Source database not found: ${sourcePath}`);
   }
@@ -15,7 +16,13 @@ export function backupDatabase(sourcePath: string, backupDir: string): string {
   const backupName = `${baseName}-${timestamp}.sqlite`;
   const backupPath = path.join(backupDir, backupName);
 
-  fs.copyFileSync(sourcePath, backupPath);
+  const db = new Database(sourcePath, { readonly: true, fileMustExist: true });
+
+  try {
+    await db.backup(backupPath);
+  } finally {
+    db.close();
+  }
 
   pruneOldBackups(backupDir, baseName);
 

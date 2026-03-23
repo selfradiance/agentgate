@@ -13,7 +13,7 @@ async function main() {
   const dbPath = process.env.AGENTGATE_DB_PATH || "data/agentgate.sqlite";
 
   try {
-    const backupPath = backupDatabase(dbPath, "data/backups");
+    const backupPath = await backupDatabase(dbPath, "data/backups");
     logger.info(`database backup created: ${backupPath}`);
   } catch (error) {
     logger.warn(`database backup skipped: ${String(error)}`);

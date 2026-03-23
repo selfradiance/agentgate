@@ -272,8 +272,7 @@ export function registerDashboard(app: AppInstance) {
       }
       const auth = request.headers.authorization;
       if (!auth || !auth.startsWith("Basic ")) {
-        reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
-        return;
+        return reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
       }
       const decoded = Buffer.from(auth.slice(6), "base64").toString("utf8");
       const colonIndex = decoded.indexOf(":");
@@ -281,7 +280,7 @@ export function registerDashboard(app: AppInstance) {
       const passwordBuf = Buffer.from(password);
       const secretBuf = Buffer.from(secret);
       if (passwordBuf.length !== secretBuf.length || !timingSafeEqual(passwordBuf, secretBuf)) {
-        reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
+        return reply.header("WWW-Authenticate", 'Basic realm="AgentGate"').status(401).send("Unauthorized");
       }
     }
   }, async (_request, reply) => {

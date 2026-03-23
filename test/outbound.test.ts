@@ -38,9 +38,9 @@ function signHeaders(privateKey: KeyObject, body: Record<string, unknown>, url: 
  * body larger than the configured limit.
  *
  * Strategy: set AGENTGATE_MAX_RESPONSE_BYTES=1024 (1 KB), then spin up a local
- * server that returns 2 KB. Because 127.0.0.1 is on the default allowlist, no
- * allowlist change is needed. vi.resetModules() + dynamic import ensures http.ts
- * picks up the env var as a fresh module-level constant.
+ * server that returns 2 KB. The test explicitly allowlists that ephemeral
+ * loopback port. vi.resetModules() + dynamic import ensures http.ts re-reads
+ * the env vars.
  */
 describe("outbound HTTP response size enforcement", () => {
   let server: ReturnType<typeof createServer>;
@@ -51,10 +51,6 @@ describe("outbound HTTP response size enforcement", () => {
     // Set a small limit (1 KB) so the test doesn't need to transfer 1 MB
     process.env.AGENTGATE_MAX_RESPONSE_BYTES = "1024";
 
-    // Reset module cache so http.ts re-reads the env var on import
-    vi.resetModules();
-    ({ postJson } = await import("../src/http.js"));
-
     // Start a local server that responds with 2 KB — double the test limit
     server = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -63,11 +59,17 @@ describe("outbound HTTP response size enforcement", () => {
 
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     serverPort = (server.address() as AddressInfo).port;
+    process.env.AGENTGATE_HTTP_ALLOWLIST = `127.0.0.1:${serverPort}`;
+
+    // Reset module cache so http.ts re-reads the env vars on import
+    vi.resetModules();
+    ({ postJson } = await import("../src/http.js"));
   });
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     delete process.env.AGENTGATE_MAX_RESPONSE_BYTES;
+    delete process.env.AGENTGATE_HTTP_ALLOWLIST;
   });
 
   it("aborts and throws RESPONSE_TOO_LARGE when the response body exceeds the configured limit", async () => {
@@ -91,10 +93,12 @@ describe("outbound HTTP 204 empty response handling", () => {
 
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     serverPort = (server.address() as AddressInfo).port;
+    process.env.AGENTGATE_HTTP_ALLOWLIST = `127.0.0.1:${serverPort}`;
   });
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    delete process.env.AGENTGATE_HTTP_ALLOWLIST;
   });
 
   afterEach(async () => {

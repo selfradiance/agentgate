@@ -1,5 +1,5 @@
 export type BondStatus = "active" | "occupied" | "released" | "expired" | "burned" | "slashed";
-export type ActionStatus = "open" | "success" | "failed" | "malicious" | "timed_out";
+export type ActionStatus = "open" | "success" | "failed" | "malicious";
 export type ResolveOutcome = "success" | "failed" | "malicious";
 
 export interface IdentityRecord {

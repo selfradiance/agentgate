@@ -155,7 +155,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
         endpoint: request.url,
         reason: provided ? "wrong_key" : "missing_key",
       });
-      reply.status(401).send({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
+      return reply.status(401).send({ error: "UNAUTHORIZED", message: "Invalid or missing x-agentgate-key header" });
     }
   });
 
@@ -321,6 +321,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     const nonce = getNonce(req.headers["x-nonce"]);
     const rawBody = req.body;
     const body = createMarketSchema.parse(rawBody);
+    service.assertNotBanned(body.creatorId);
     assertSignedRequest(
       service.getIdentityPublicKey(body.creatorId),
       nonce,
@@ -344,6 +345,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
     if (body.resolverId !== creatorId) {
       throw new AppError(403, "NOT_MARKET_CREATOR", "Only the identity that created the market can resolve it");
     }
+    service.assertNotBanned(body.resolverId);
     assertSignedRequest(
       service.getIdentityPublicKey(body.resolverId),
       nonce,

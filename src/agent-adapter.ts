@@ -32,8 +32,10 @@ interface GeneratedIdentity {
 }
 
 interface LockBondResponse {
+  bondId?: string;
   bond_id?: string;
   status?: string;
+  expiresAt?: string;
   expires_at?: string;
 }
 
@@ -119,7 +121,11 @@ async function loadOrCreateIdentity(identityPath: string): Promise<AgentIdentity
 }
 
 async function writeIdentityFile(identityPath: string, identity: AgentIdentity) {
-  await fs.promises.writeFile(identityPath, `${JSON.stringify(identity, null, 2)}\n`, "utf8");
+  await fs.promises.mkdir(path.dirname(identityPath), { recursive: true });
+  await fs.promises.writeFile(identityPath, `${JSON.stringify(identity, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
 }
 
 async function parseErrorBody(response: Response) {
@@ -261,10 +267,13 @@ export class AgentAdapter {
     }
   }
 
-  private async signedPost<T>(path: string, body: unknown): Promise<T> {
+  private async requireIdentity(): Promise<AgentIdentity> {
     await this.ensureIdentity();
+    return this.identity!;
+  }
 
-    const identity = this.identity!;
+  private async signedPost<T>(path: string, body: unknown): Promise<T> {
+    const identity = await this.requireIdentity();
 
     const timestamp = Date.now().toString();
     const nonce = randomUUID();
@@ -316,8 +325,9 @@ export class AgentAdapter {
     ttlSeconds: number,
     reason: string
   ): Promise<LockBondResponse> {
+    const identity = await this.requireIdentity();
     return this.signedPost("/v1/bonds/lock", {
-      identityId: this.identity!.identityId,
+      identityId: identity.identityId,
       amountCents,
       currency: "USD",
       ttlSeconds,
@@ -331,8 +341,9 @@ export class AgentAdapter {
     payload: Record<string, unknown>,
     exposureCents: number
   ): Promise<ExecuteActionResponse> {
+    const identity = await this.requireIdentity();
     return this.signedPost("/v1/actions/execute", {
-      identityId: this.identity!.identityId,
+      identityId: identity.identityId,
       actionType,
       payload,
       bondId,
@@ -379,17 +390,19 @@ export class AgentAdapter {
   }
 
   async createMarket(question: string, resolutionDeadline: string) {
+    const identity = await this.requireIdentity();
     return this.signedPost("/markets", {
-      creatorId: this.identity!.identityId,
+      creatorId: identity.identityId,
       question,
       resolutionDeadline
     });
   }
 
   async resolveMarket(marketId: string, outcome: "yes" | "no") {
+    const identity = await this.requireIdentity();
     return this.signedPost(`/markets/${marketId}/resolve`, {
       outcome,
-      resolverId: this.identity!.identityId
+      resolverId: identity.identityId
     });
   }
 }

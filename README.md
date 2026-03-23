@@ -79,7 +79,7 @@ curl -s http://127.0.0.1:3000/v1/actions/<actionId>/resolve \
   -H "x-agentgate-timestamp: $TIMESTAMP" \
   -H "x-agentgate-signature: $SIGNATURE" \
   -H "x-nonce: $(uuidgen)" \
-  -d '{ "outcome": "success" }'
+  -d '{ "outcome": "success", "resolverId": "id_resolver123" }'
 ```
 
 Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, exposure is released. On malicious, the bond is slashed.
@@ -147,7 +147,7 @@ The dashboard shows per-identity scores with color coding (green for positive, r
 
 ### Outbound HTTP Safety (`market.http`)
 
-- **Host:port allowlist** — each allowlist entry is a `host:port` pair (e.g., `localhost:3000`). Wildcard port supported (e.g., `localhost:*`). Default allowlist uses wildcards for local dev; production deployments should set `AGENTGATE_HTTP_ALLOWLIST` with explicit host:port pairs
+- **Host:port allowlist** — each allowlist entry is a `host:port` pair (e.g., `localhost:3000`). Wildcard port supported (e.g., `localhost:*`). Default allowlist is fail-closed to loopback ports 80 and 443 only; local dev services on custom ports must be explicitly listed in `AGENTGATE_HTTP_ALLOWLIST`
 - http/https only (default port inferred: 80 for http, 443 for https)
 - Timeout (default 2500ms)
 - Max request size, max response size
@@ -416,6 +416,40 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 - **Market position filtering at DB level** — `resolveMarket()` now uses `json_extract(payload, '$.marketId')` in the SQL query instead of loading all open positions into memory
 - **Market deadline validation** — `resolutionDeadline` must be a valid future ISO 8601 timestamp (enforced via Zod `.refine()`)
 - **Payload size measured in bytes** — the 4096 limit now uses `Buffer.byteLength()` instead of `.length`, correctly measuring multi-byte characters
+
+**Post-v0.3.0 hardening (Session 22):**
+
+- **Positive exposure required** — `exposure_cents` is now mandatory and must be a positive integer. Zero-stake actions are rejected with `400 INVALID_EXPOSURE`
+- **Prediction market payload validation** — `market.position` actions now require a JSON object with `marketId` and `side` (`yes` or `no`) before anything is persisted
+- **Legacy malformed market rows no longer break resolution** — `resolveMarket()` now filters malformed JSON safely instead of letting SQLite throw `malformed JSON`
+- **Banned identities fully blocked from market writes** — banned identities can no longer create markets or resolve markets they previously created
+- **Final bond status reflects aggregate outcomes** — once the last action settles, bond status is derived from cumulative settlement totals (`slashed` beats `burned`, which beats `released`)
+- **Safer outbound defaults** — the implicit outbound allowlist no longer grants arbitrary loopback ports
+- **WAL-safe backups** — startup backups now use SQLite’s backup API instead of copying only the main `.sqlite` file
+- **Agent adapter auto-init fix** — `AgentAdapter.lockBond()`, `executeBondedAction()`, and market helpers now auto-create/load the identity before building signed request bodies
+
+### How To Verify
+
+Run:
+
+```bash
+npm run lint
+npm run test
+```
+
+Regression coverage added for:
+
+- adapter auto-identity creation
+- WAL-safe backups
+- banned market create/resolve attempts
+- mixed-outcome bond status precedence
+- explicit allowlisting for outbound HTTP tests
+- market position payload validation and malformed legacy row handling
+
+### Next Steps
+
+- Add a small admin repair tool for malformed legacy `market.position` rows so operators can settle or purge bad historical data explicitly
+- Add one end-to-end test for the startup backup path in `src/index.ts` to exercise the async backup call in the same flow production uses
 
 ---
 

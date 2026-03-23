@@ -446,12 +446,7 @@ describe("Attack 1.5A — zero exposure declaration", () => {
     return handle;
   }
 
-  // Design decision: exposure_cents = 0 is accepted. The effective exposure is
-  // ceil(0 × 1.2) = 0, which never exceeds bond capacity. The agent gets a
-  // zero-stake action — economically harmless but a valid no-op. We document
-  // this behavior rather than reject it, because the real economic stake is
-  // the bond itself (already locked), not any single action's declared exposure.
-  it("accepts an action with exposure_cents 0 (zero-stake no-op)", async () => {
+  it("rejects an action with exposure_cents 0", async () => {
     const handle = buildDb();
     const service = new AgentGateService(handle.db);
 
@@ -464,16 +459,15 @@ describe("Attack 1.5A — zero exposure declaration", () => {
       reason: "attack-1.5a",
     });
 
-    const { actionId } = await service.executeAction({
-      identityId,
-      bondId,
-      actionType: "attack-1.5a",
-      exposure_cents: 0,
-    });
+    await expect(
+      service.executeAction({
+        identityId,
+        bondId,
+        actionType: "attack-1.5a",
+        exposure_cents: 0,
+      })
+    ).rejects.toMatchObject({ code: "INVALID_EXPOSURE" });
 
-    expect(actionId).toBeTruthy();
-
-    // Outstanding exposure must be 0 — no capacity consumed
     const bond = handle.db
       .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { outstanding_exposure_cents: number };
@@ -1244,7 +1238,7 @@ describe("Attack 5.1 — localhost bypass via IPv6", () => {
   it("allows the short-form ::1 on a default-allowlisted port", () => {
     // new URL("http://[::1]/").hostname === "[::1]" — WHATWG spec serialises
     // IPv6 addresses with brackets. assertUrlAllowed strips brackets before the
-    // allowlist lookup so "::1:*" matches the default wildcard entry correctly.
+    // allowlist lookup so "::1:80" matches the default allowlist correctly.
     expect(() => assertUrlAllowed("http://[::1]/")).not.toThrow();
   });
 
@@ -1253,7 +1247,7 @@ describe("Attack 5.1 — localhost bypass via IPv6", () => {
     // form AND includes brackets: new URL("http://[0:0:0:0:0:0:0:1]/").hostname
     // === "[::1]". assertUrlAllowed strips the brackets before the allowlist
     // lookup, so both short- and long-form IPv6 localhost are correctly allowed.
-    expect(() => assertUrlAllowed("http://[0:0:0:0:0:0:0:1]:3000/")).not.toThrow();
+    expect(() => assertUrlAllowed("http://[0:0:0:0:0:0:0:1]/")).not.toThrow();
   });
 });
 
@@ -1337,11 +1331,10 @@ describe("Attack 5.5 — allowlisted host but non-allowlisted port", () => {
     expect(() => freshAssert("https://127.0.0.1/")).not.toThrow();
   });
 
-  it("allows any port on localhost with the default wildcard allowlist", () => {
-    // Default allowlist uses host:* wildcard entries for localhost.
-    expect(() => assertUrlAllowed("http://localhost:3000/")).not.toThrow();
-    expect(() => assertUrlAllowed("http://127.0.0.1:9999/")).not.toThrow();
-    expect(() => assertUrlAllowed("http://[::1]:5000/")).not.toThrow();
+  it("blocks localhost on arbitrary ports with the default allowlist", () => {
+    expect(() => assertUrlAllowed("http://localhost:3000/")).toThrow(/not allowlisted/);
+    expect(() => assertUrlAllowed("http://127.0.0.1:9999/")).toThrow(/not allowlisted/);
+    expect(() => assertUrlAllowed("http://[::1]:5000/")).toThrow(/not allowlisted/);
   });
 });
 
