@@ -44,6 +44,25 @@ const resolveMarketMcpSchema = z.object({
   outcome: z.enum(["yes", "no"])
 });
 
+function summarizeToolResult(result: unknown) {
+  if (result === null || result === undefined) {
+    return { resultType: String(result) };
+  }
+
+  if (Array.isArray(result)) {
+    return { resultType: "array", itemCount: result.length };
+  }
+
+  if (typeof result === "object") {
+    return {
+      resultType: "object",
+      keys: Object.keys(result as Record<string, unknown>).slice(0, 8)
+    };
+  }
+
+  return { resultType: typeof result };
+}
+
 // ---- Server factory ----
 export function createMcpServer(adapter: AgentAdapter): Server {
   const server = new Server(
@@ -101,13 +120,13 @@ export function createMcpServer(adapter: AgentAdapter): Server {
     const requestId = generateRequestId();
     const logger = createLogger(requestId);
 
-    logger.info(`MCP tool called: ${toolName}`);
+    logger.info("MCP tool called", { tool: toolName });
 
     try {
       if (toolName === "lock_bond") {
         const input = lockBondSchema.parse(args);
         const result = await adapter.lockBond(input.amount_cents, input.ttl_seconds, input.reason);
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
@@ -119,47 +138,51 @@ export function createMcpServer(adapter: AgentAdapter): Server {
           input.payload,
           input.exposure_cents
         );
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       if (toolName === "resolve_action") {
         const input = resolveActionSchema.parse(args);
         const result = await adapter.resolveAction(input.actionId, input.outcome, input.resolverId);
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       if (toolName === "get_reputation") {
         const input = getReputationSchema.parse(args);
         const result = await adapter.getReputation(input.identityId);
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       if (toolName === "create_identity") {
         const result = await adapter.createIdentity();
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       if (toolName === "create_market") {
         const input = createMarketMcpSchema.parse(args);
         const result = await adapter.createMarket(input.question, input.resolution_deadline);
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       if (toolName === "resolve_market") {
         const input = resolveMarketMcpSchema.parse(args);
         const result = await adapter.resolveMarket(input.marketId, input.outcome);
-        logger.info(`MCP tool completed: ${toolName} result=${JSON.stringify(result)}`);
+        logger.info("MCP tool completed", { tool: toolName, ...summarizeToolResult(result) });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       throw new Error(`Unknown tool: ${toolName}`);
     } catch (err) {
-      logger.error(`MCP tool error: ${toolName} error=${String(err)}`);
+      logger.error("MCP tool error", {
+        tool: toolName,
+        errorName: err instanceof Error ? err.name : typeof err,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     }
   });

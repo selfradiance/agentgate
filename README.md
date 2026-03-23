@@ -427,6 +427,7 @@ Full attack scenarios documented in [`docs/red-team-plan.md`](docs/red-team-plan
 - **Safer outbound defaults** — the implicit outbound allowlist no longer grants arbitrary loopback ports
 - **WAL-safe backups** — startup backups now use SQLite’s backup API instead of copying only the main `.sqlite` file
 - **Agent adapter auto-init fix** — `AgentAdapter.lockBond()`, `executeBondedAction()`, and market helpers now auto-create/load the identity before building signed request bodies
+- **MCP log sanitization** — MCP tool completion logs now record result shape/keys instead of dumping full tool payloads or outbound response bodies to stderr
 
 ### How To Verify
 
