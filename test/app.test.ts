@@ -975,6 +975,31 @@ describe("Identity Governance", () => {
     expect(lockResponse.json().error).toBe("IDENTITY_BANNED");
   });
 
+  it("auto-banned identity cannot execute actions on a pre-existing bond", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
+    // Lock 4 bonds upfront — 3 will be used for malicious actions, 1 reserved for post-ban test
+    const bondId1 = await lockBond(app, signer, identityId, 10000, "mal-bond-1");
+    const bondId2 = await lockBond(app, signer, identityId, 10000, "mal-bond-2");
+    const bondId3 = await lockBond(app, signer, identityId, 10000, "mal-bond-3");
+    const survivingBondId = await lockBond(app, signer, identityId, 10000, "surviving-bond");
+
+    // Trigger auto-ban: 3 malicious resolutions by a different identity
+    for (const bondId of [bondId1, bondId2, bondId3]) {
+      const actionBody = { identityId, actionType: "bad-action", bondId, exposure_cents: 100 };
+      const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+      await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+    }
+
+    // Attempt to execute an action on the surviving bond — should be banned
+    const actionBody = { identityId, actionType: "post-ban-action", bondId: survivingBondId, exposure_cents: 100 };
+    const executeResponse = await executeSignedAction(app, signer, actionBody);
+    expect(executeResponse.statusCode).toBe(403);
+    expect(executeResponse.json().error).toBe("IDENTITY_BANNED");
+  });
+
   it("ban/unban returns 404 for unknown identity", async () => {
     const app = await buildApp();
 
