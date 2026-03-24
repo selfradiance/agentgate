@@ -23,6 +23,13 @@ async function main() {
 
   registerDashboard(app);
 
+  // Register the onClose hook BEFORE listen — Fastify rejects hooks after startup.
+  // sweepInterval is set after listen, so the hook captures it via closure.
+  let sweepInterval: ReturnType<typeof setInterval> | undefined;
+  app.addHook("onClose", async () => {
+    if (sweepInterval) clearInterval(sweepInterval);
+  });
+
   const host = process.env.HOST || "127.0.0.1";
   const port = Number(process.env.PORT || 3000);
 
@@ -48,7 +55,7 @@ async function main() {
 
   const mcpHttpServer = startMcpHttpServer(3001);
 
-  const sweepInterval = setInterval(() => {
+  sweepInterval = setInterval(() => {
     const result = app.sweepExpiredActions();
     logger.info(`sweeper: slashed ${result.slashedCount} expired actions`);
     const nonces = app.cleanExpiredNonces();
@@ -57,12 +64,8 @@ async function main() {
     logger.info(`bucket-cleanup: purged ${buckets.purgedCount} expired rate-limit buckets`);
   }, SWEEP_INTERVAL_MS);
 
-  app.addHook("onClose", async () => {
-    clearInterval(sweepInterval);
-  });
-
   const shutdown = async () => {
-    clearInterval(sweepInterval);
+    if (sweepInterval) clearInterval(sweepInterval);
     await app.close();
     await new Promise<void>((resolve) => mcpHttpServer.close(() => resolve()));
     process.exit(0);
