@@ -5,8 +5,12 @@ import {
   sign,
   type KeyObject
 } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
+import { createDatabase } from "../src/db";
+import { AgentGateService } from "../src/service";
+import { computeTrustTier } from "../src/reputation";
+import type { ResolveOutcome } from "../src/types";
 
 const apps: ReturnType<typeof createApp>[] = [];
 
@@ -185,5 +189,118 @@ describe("trust tier bond cap enforcement", () => {
     const res = await lockBond(app, signer, identityId, 1000);
     expect(res.statusCode).toBe(201);
     expect(res.json().bondId).toBeDefined();
+  });
+});
+
+describe("trust tier demotion flow (service layer)", () => {
+  let service: AgentGateService;
+  let closeDb: () => void;
+
+  beforeEach(() => {
+    const { db, close } = createDatabase(":memory:");
+    service = new AgentGateService(db);
+    closeDb = close;
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it("Tier 3 identity demoted to Tier 1 after a single malicious resolution", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-28T12:00:00.000Z"));
+
+    const { identityId } = service.createIdentity({ publicKey: `DEMOTION_TEST_${randomUUID().slice(0, 30)}=` });
+
+    // Build 20 successful resolutions to reach Tier 3
+    // Advance time by 11+ minutes every 10 actions to clear both rate limit
+    // and progressive min bond windows (10 min each)
+    for (let i = 0; i < 20; i++) {
+      if (i > 0 && i % 10 === 0) {
+        vi.setSystemTime(new Date(`2026-03-28T${12 + Math.floor(i / 10)}:00:00.000Z`));
+      }
+      const { bondId } = service.lockBond({
+        identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600,
+        reason: `tier-build-${i}`
+      });
+      const { actionId } = await service.executeAction({
+        identityId, bondId, actionType: "tier-build",
+        exposure_cents: 10
+      });
+      service.resolveAction(actionId, { outcome: "success" });
+    }
+
+    // Advance time past both rate limit and progressive min bond windows
+    vi.setSystemTime(new Date("2026-03-28T14:00:00.000Z"));
+
+    // Verify identity is Tier 3 — can lock a 1000¢ bond
+    const { bondId: largeBondId } = service.lockBond({
+      identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300,
+      reason: "tier-3-confirmed"
+    });
+    expect(largeBondId).toMatch(/^bond_/);
+
+    // Execute and resolve one action as malicious
+    const { actionId: maliciousActionId } = await service.executeAction({
+      identityId, bondId: largeBondId, actionType: "malicious-act",
+      exposure_cents: 10
+    });
+    service.resolveAction(maliciousActionId, { outcome: "malicious" });
+
+    // Verify identity is now Tier 1 — cannot lock a bond above 100¢
+    expect(() => service.lockBond({
+      identityId, amountCents: 200, currency: "USD", ttlSeconds: 300,
+      reason: "post-demotion-attempt"
+    })).toThrow(/Tier 1/);
+
+    // Can still lock a 100¢ bond (Tier 1 cap)
+    const { bondId: smallBondId } = service.lockBond({
+      identityId, amountCents: 100, currency: "USD", ttlSeconds: 300,
+      reason: "post-demotion-small"
+    });
+    expect(smallBondId).toMatch(/^bond_/);
+
+    vi.useRealTimers();
+  });
+
+  it("cheap farming: 20 trivial 2¢ bonds reach Tier 3 (documented v1 limitation)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-28T12:00:00.000Z"));
+
+    const { identityId } = service.createIdentity({ publicKey: `FARMING_TEST_${randomUUID().slice(0, 30)}=` });
+
+    // Farm Tier 3 with 20 trivial 2¢ bonds and minimal exposure (1¢ declared,
+    // ceil(1 * 1.2) = 2¢ effective, fitting within the 2¢ bond)
+    for (let i = 0; i < 20; i++) {
+      if (i > 0 && i % 10 === 0) {
+        vi.setSystemTime(new Date(`2026-03-28T${12 + Math.floor(i / 10)}:00:00.000Z`));
+      }
+      const { bondId } = service.lockBond({
+        identityId, amountCents: 2, currency: "USD", ttlSeconds: 3600,
+        reason: `cheap-farm-${i}`
+      });
+      const { actionId } = await service.executeAction({
+        identityId, bondId, actionType: "cheap-farm",
+        exposure_cents: 1
+      });
+      service.resolveAction(actionId, { outcome: "success" });
+    }
+
+    // Advance time past both rate limit and progressive min bond windows
+    vi.setSystemTime(new Date("2026-03-28T14:00:00.000Z"));
+
+    // Verify identity reached Tier 3 — can lock a large bond
+    const { bondId: largeBondId } = service.lockBond({
+      identityId, amountCents: 5000, currency: "USD", ttlSeconds: 300,
+      reason: "farmed-tier-3-big-bond"
+    });
+    expect(largeBondId).toMatch(/^bond_/);
+
+    // Confirm the tier is indeed 3
+    const stats = service.getIdentitySummary(identityId);
+    expect(stats.reputation.stats.successes).toBe(20);
+    expect(stats.reputation.stats.malicious).toBe(0);
+
+    vi.useRealTimers();
   });
 });
