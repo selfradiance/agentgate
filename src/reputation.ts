@@ -14,6 +14,7 @@ export interface TrustHistoryEntry {
 
 export const MIN_TRUST_TIER_SUCCESS_EXPOSURE_CENTS = 100;
 export const TIER_2_QUALIFYING_SUCCESSES = 5;
+export const TIER_2_DISTINCT_RESOLVERS = 3;
 export const TIER_3_QUALIFYING_SUCCESSES = 20;
 
 type TrustHistoryInput = ResolveOutcome | TrustHistoryEntry;
@@ -62,7 +63,7 @@ export function computeTrustTier(history: TrustHistoryInput[]): TrustTier {
   }
   if (
     qualifyingSuccesses.length >= TIER_2_QUALIFYING_SUCCESSES &&
-    independentResolvers.size >= TIER_2_QUALIFYING_SUCCESSES
+    independentResolvers.size >= TIER_2_DISTINCT_RESOLVERS
   ) {
     return 2;
   }
