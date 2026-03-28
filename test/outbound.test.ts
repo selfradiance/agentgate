@@ -124,7 +124,7 @@ describe("outbound HTTP 204 empty response handling", () => {
     const { identityId } = idRes.json() as { identityId: string };
 
     // Lock bond
-    const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "204-test" };
+    const bondPayload = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "204-test" };
     const bondRes = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
@@ -139,7 +139,7 @@ describe("outbound HTTP 204 empty response handling", () => {
       bondId,
       actionType: "market.http",
       payload: { url: `http://127.0.0.1:${serverPort}/test`, body: {} },
-      exposure_cents: 500
+      exposure_cents: 50
     };
     const actionRes = await app.inject({
       method: "POST",
@@ -157,5 +157,40 @@ describe("outbound HTTP 204 empty response handling", () => {
       .prepare("SELECT status FROM actions WHERE id = ?")
       .get(actionId) as { status: string };
     expect(action.status).toBe("open");
+  });
+});
+
+describe("outbound HTTP relative redirect handling", () => {
+  let server: ReturnType<typeof createServer>;
+  let serverPort: number;
+  let postJson: (url: string, body: unknown) => Promise<unknown>;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url === "/redirect") {
+        res.writeHead(302, { location: "/final" });
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    serverPort = (server.address() as AddressInfo).port;
+    process.env.AGENTGATE_HTTP_ALLOWLIST = `127.0.0.1:${serverPort}`;
+
+    vi.resetModules();
+    ({ postJson } = await import("../src/http.js"));
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    delete process.env.AGENTGATE_HTTP_ALLOWLIST;
+  });
+
+  it("follows allowlisted relative redirects safely", async () => {
+    await expect(postJson(`http://127.0.0.1:${serverPort}/redirect`, {})).resolves.toEqual({ ok: true });
   });
 });

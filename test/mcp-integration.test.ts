@@ -88,7 +88,7 @@ describe("MCP end-to-end", () => {
   it("lock_bond returns a bondId", async () => {
     const result = await client.callTool({
       name: "lock_bond",
-      arguments: { amount_cents: 1000, ttl_seconds: 300, reason: "mcp-integration-test" }
+      arguments: { amount_cents: 100, ttl_seconds: 300, reason: "mcp-integration-test" }
     });
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content).toHaveLength(1);
@@ -108,7 +108,7 @@ describe("MCP end-to-end", () => {
         bondId,
         actionType: "mcp-test-action",
         payload: JSON.stringify({ test: true }),
-        exposure_cents: 100
+        exposure_cents: 10
       }
     });
     const content = result.content as Array<{ type: string; text: string }>;
@@ -140,7 +140,7 @@ describe("MCP end-to-end", () => {
     };
     expect(data.actionId).toBe(actionId);
     expect(data.outcome).toBe("success");
-    expect(data.refundCents).toBe(120); // ceil(100 × 1.2) = action exposure, not bond amount
+    expect(data.refundCents).toBe(12); // ceil(10 × 1.2) = action exposure, not bond amount
     expect(data.burnedCents).toBe(0);
     expect(data.slashedCents).toBe(0);
   });

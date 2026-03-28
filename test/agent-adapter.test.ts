@@ -45,7 +45,7 @@ describe("AgentAdapter", () => {
     }
 
     const adapter = new AgentAdapter(`http://127.0.0.1:${address.port}`, identityFilePath);
-    const result = await adapter.lockBond(1000, 300, "auto-init");
+    const result = await adapter.lockBond(100, 300, "auto-init");
 
     expect(result.bondId).toMatch(/^bond_/);
 

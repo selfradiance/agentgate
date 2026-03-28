@@ -70,9 +70,9 @@ describe("sweepExpiredActions", () => {
 
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const bondId = await lockBond(app, signer, identityId, 1000, "sweep-test", 1);
+    const bondId = await lockBond(app, signer, identityId, 100, "sweep-test", 1);
 
-    const actionBody = { identityId, bondId, actionType: "sweep-test", payload: { test: true }, exposure_cents: 100 };
+    const actionBody = { identityId, bondId, actionType: "sweep-test", payload: { test: true }, exposure_cents: 10 };
     const executeResponse = await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
@@ -114,9 +114,9 @@ describe("sweepExpiredActions", () => {
 
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const bondId = await lockBond(app, signer, identityId, 1000, "long-bond", 3600);
+    const bondId = await lockBond(app, signer, identityId, 100, "long-bond", 3600);
 
-    const actionBody = { identityId, bondId, actionType: "long-running", payload: {}, exposure_cents: 100 };
+    const actionBody = { identityId, bondId, actionType: "long-running", payload: {}, exposure_cents: 10 };
     await app.inject({
       method: "POST",
       url: "/v1/actions/execute",

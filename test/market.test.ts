@@ -17,8 +17,8 @@ describe("Prediction Market", () => {
     const bob = service.createIdentity({ publicKey: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=", agentName: "bob" });
 
     // Each locks a bond
-    const aliceBond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "market bet" });
-    const bobBond = service.lockBond({ identityId: bob.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "market bet" });
+    const aliceBond = service.lockBond({ identityId: alice.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "market bet" });
+    const bobBond = service.lockBond({ identityId: bob.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "market bet" });
 
     // Create a market (by operator, not by a participant)
     const market = service.createMarket({ creatorId: operator.identityId, question: "Will BTC hit 100k by Friday?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
@@ -30,7 +30,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId, side: "yes" },
       bondId: aliceBond.bondId,
-      exposure_cents: 1000
+      exposure_cents: 10
     });
 
     const bobPos = await service.executeAction({
@@ -38,7 +38,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId, side: "no" },
       bondId: bobBond.bondId,
-      exposure_cents: 1000
+      exposure_cents: 10
     });
 
     expect(alicePos.status).toBe("open");
@@ -74,7 +74,7 @@ describe("Prediction Market", () => {
   it("resolving one market does not affect positions on a different market", async () => {
     const operator = service.createIdentity({ publicKey: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=", agentName: "operator" });
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
-    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 10000, currency: "USD", ttlSeconds: 3600, reason: "multi-market test" });
+    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "multi-market test" });
 
     const market1 = service.createMarket({ creatorId: operator.identityId, question: "Market 1?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
     const market2 = service.createMarket({ creatorId: operator.identityId, question: "Market 2?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
@@ -85,7 +85,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market1.marketId, side: "yes" },
       bondId: bond.bondId,
-      exposure_cents: 1000
+      exposure_cents: 10
     });
 
     const market2Pos = await service.executeAction({
@@ -93,7 +93,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market2.marketId, side: "no" },
       bondId: bond.bondId,
-      exposure_cents: 1000
+      exposure_cents: 10
     });
 
     // Resolve only market 1
@@ -108,7 +108,7 @@ describe("Prediction Market", () => {
   it("rejects invalid market.position payloads during execution", async () => {
     const operator = service.createIdentity({ publicKey: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=", agentName: "operator" });
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
-    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "payload validation" });
+    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "payload validation" });
     const market = service.createMarket({ creatorId: operator.identityId, question: "Validation test?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
 
     await expect(service.executeAction({
@@ -116,15 +116,15 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId },
       bondId: bond.bondId,
-      exposure_cents: 500
+      exposure_cents: 10
     })).rejects.toMatchObject({ code: "INVALID_POSITION_PAYLOAD" });
   });
 
   it("rejects position from the identity that created the market", async () => {
     const creator = service.createIdentity({ publicKey: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=", agentName: "creator" });
     const participant = service.createIdentity({ publicKey: "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=", agentName: "participant" });
-    const creatorBond = service.lockBond({ identityId: creator.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "creator bond" });
-    const participantBond = service.lockBond({ identityId: participant.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "participant bond" });
+    const creatorBond = service.lockBond({ identityId: creator.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "creator bond" });
+    const participantBond = service.lockBond({ identityId: participant.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "participant bond" });
 
     const market = service.createMarket({ creatorId: creator.identityId, question: "Creator position test?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
 
@@ -134,7 +134,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId, side: "yes" },
       bondId: creatorBond.bondId,
-      exposure_cents: 500
+      exposure_cents: 10
     })).rejects.toMatchObject({ code: "CREATOR_CANNOT_TAKE_POSITION" });
 
     // A different identity can take a position
@@ -143,7 +143,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId, side: "yes" },
       bondId: participantBond.bondId,
-      exposure_cents: 500
+      exposure_cents: 10
     });
     expect(pos.status).toBe("open");
   });
@@ -151,7 +151,7 @@ describe("Prediction Market", () => {
   it("ignores malformed legacy rows that do not contain valid market JSON", async () => {
     const operator = service.createIdentity({ publicKey: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=", agentName: "operator" });
     const alice = service.createIdentity({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", agentName: "alice" });
-    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 5000, currency: "USD", ttlSeconds: 3600, reason: "malformed test" });
+    const bond = service.lockBond({ identityId: alice.identityId, amountCents: 100, currency: "USD", ttlSeconds: 3600, reason: "malformed test" });
 
     const market = service.createMarket({ creatorId: operator.identityId, question: "Malformed payload test?", resolutionDeadline: new Date(Date.now() - 1000).toISOString() });
 
@@ -161,7 +161,7 @@ describe("Prediction Market", () => {
       actionType: "market.position",
       payload: { marketId: market.marketId, side: "yes" },
       bondId: bond.bondId,
-      exposure_cents: 500
+      exposure_cents: 10
     });
 
     // Inject a position with a malformed (non-JSON) payload directly into the database
@@ -175,7 +175,7 @@ describe("Prediction Market", () => {
       action_type: "market.position",
       payload: "{bad json<<<",
       bond_id: bond.bondId,
-      exposure_cents: 500,
+      exposure_cents: 10,
       status: "open",
       created_at: new Date().toISOString()
     });

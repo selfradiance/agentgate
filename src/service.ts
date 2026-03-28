@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { AppError } from "./errors";
 import { createLogger } from "./logger";
-import { scoreIdentity } from "./reputation";
+import { computeTrustTier, scoreIdentity } from "./reputation";
 import type {
   ActionRecord,
   BondRecord,
@@ -39,6 +39,12 @@ const RISK_MULTIPLIER = 1.2;
 const MAX_TTL_SECONDS = 86400; // 24 hours
 const MAX_PAYLOAD_BYTES = 4096;
 
+const TIER_BOND_CAP_CENTS: Record<1 | 2 | 3, number | null> = {
+  1: 100,
+  2: 500,
+  3: null, // no tier cap — normal capacity rules apply
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -67,13 +73,24 @@ export class AgentGateService {
 
   lockBond(input: LockBondInput) {
     this.assertNotBanned(input.identityId);
-    this.getIdentityOrThrow(input.identityId);
 
     if (input.ttlSeconds > MAX_TTL_SECONDS) {
       throw new AppError(
         400,
         "TTL_TOO_LONG",
         `TTL exceeds maximum of ${MAX_TTL_SECONDS} seconds (24 hours)`
+      );
+    }
+
+    const identity = this.getIdentityOrThrow(input.identityId);
+    const history = this.getResolutionHistory(input.identityId);
+    const tier = computeTrustTier(history, identity.status === "banned");
+    const cap = TIER_BOND_CAP_CENTS[tier];
+    if (cap !== null && input.amountCents > cap) {
+      throw new AppError(
+        403,
+        "TIER_BOND_CAP_EXCEEDED",
+        `Tier ${tier} identities are limited to bonds of ${cap} cents`
       );
     }
 
@@ -911,6 +928,16 @@ export class AgentGateService {
     }
 
     return statusCode !== undefined ? { statusCode, body: bodyStr } : { body: bodyStr };
+  }
+
+  private getResolutionHistory(identityId: string): ResolveOutcome[] {
+    const rows = this.db
+      .prepare(
+        `SELECT status FROM actions
+         WHERE identity_id = ? AND status IN ('success', 'failed', 'malicious')`
+      )
+      .all(identityId) as Array<{ status: ResolveOutcome }>;
+    return rows.map((r) => r.status);
   }
 
   private getBucketStart(timestampMs: number) {

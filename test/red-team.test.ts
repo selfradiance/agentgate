@@ -209,36 +209,36 @@ describe("Attack 1.1 — over-commit exposure beyond bond capacity", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.1",
     });
 
-    // Action 1: declared 400 → effective ceil(400 × 1.2) = 480. Outstanding becomes 480, 520 remaining.
+    // Action 1: declared 40 → effective ceil(40 × 1.2) = 48. Outstanding becomes 48, 52 remaining.
     await service.executeAction({
       identityId,
       bondId,
       actionType: "attack-1.1-first",
-      exposure_cents: 400,
+      exposure_cents: 40,
     });
 
-    // Action 2: declared 450 → effective ceil(450 × 1.2) = 540. Combined: 480 + 540 = 1020 > 1000.
+    // Action 2: declared 45 → effective ceil(45 × 1.2) = 54. Combined: 48 + 54 = 102 > 100.
     // Must be rejected before any state change occurs.
     await expect(
       service.executeAction({
         identityId,
         bondId,
         actionType: "attack-1.1-second",
-        exposure_cents: 450,
+        exposure_cents: 45,
       })
     ).rejects.toMatchObject({ code: "INSUFFICIENT_BOND_CAPACITY" });
 
-    // Bond state must be unchanged by the rejected action — still 480 outstanding, not 1020.
+    // Bond state must be unchanged by the rejected action — still 48 outstanding, not 102.
     const bond = handle.db
       .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { outstanding_exposure_cents: number };
-    expect(bond.outstanding_exposure_cents).toBe(480);
+    expect(bond.outstanding_exposure_cents).toBe(48);
 
     // All 8 invariants must hold.
     validateInvariants(handle.db);
@@ -272,25 +272,25 @@ describe("Attack 1.2 — rapid resolve-then-execute cycle", () => {
     for (let cycle = 0; cycle < 5; cycle++) {
       const { bondId } = service.lockBond({
         identityId,
-        amountCents: 1000,
+        amountCents: 100,
         currency: "USD",
         ttlSeconds: 300,
         reason: `attack-1.2-cycle-${cycle}`,
       });
 
-      // Execute: declared 800 → effective ceil(800 × 1.2) = 960
+      // Execute: declared 80 → effective ceil(80 × 1.2) = 96
       const { actionId } = await service.executeAction({
         identityId,
         bondId,
         actionType: "attack-1.2",
-        exposure_cents: 800,
+        exposure_cents: 80,
       });
 
       // Exposure must be reserved correctly before resolve
       const afterExecute = handle.db
         .prepare(`SELECT outstanding_exposure_cents FROM bonds WHERE id = ?`)
         .get(bondId) as { outstanding_exposure_cents: number };
-      expect(afterExecute.outstanding_exposure_cents).toBe(960);
+      expect(afterExecute.outstanding_exposure_cents).toBe(96);
 
       // Resolve as success — exposure must be fully released, not partially or doubly
       service.resolveAction(actionId, { outcome: "success" });
@@ -328,7 +328,7 @@ describe("Attack 1.3 — resolve an already-resolved action", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.3",
@@ -338,7 +338,7 @@ describe("Attack 1.3 — resolve an already-resolved action", () => {
       identityId,
       bondId,
       actionType: "attack-1.3",
-      exposure_cents: 500,
+      exposure_cents: 50,
     });
 
     // First resolve: success — this is the legitimate settlement
@@ -389,7 +389,7 @@ describe("Attack 1.4 — execute against a burned/slashed bond", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.4",
@@ -399,7 +399,7 @@ describe("Attack 1.4 — execute against a burned/slashed bond", () => {
       identityId,
       bondId,
       actionType: "attack-1.4-first",
-      exposure_cents: 500,
+      exposure_cents: 50,
     });
 
     // Resolve as malicious — bond status becomes 'slashed'
@@ -417,7 +417,7 @@ describe("Attack 1.4 — execute against a burned/slashed bond", () => {
         identityId,
         bondId,
         actionType: "attack-1.4-second",
-        exposure_cents: 100,
+        exposure_cents: 10,
       })
     ).rejects.toMatchObject({ code: "BOND_NOT_ACTIVE" });
 
@@ -453,7 +453,7 @@ describe("Attack 1.5A — zero exposure declaration", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.5a",
@@ -499,7 +499,7 @@ describe("Attack 1.5B — negative exposure declaration", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.5b",
@@ -550,7 +550,7 @@ describe("Attack 1.6 — extremely large exposure value", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-1.6",
@@ -610,7 +610,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 1,
       reason: "attack-2.1-a",
@@ -620,7 +620,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
       identityId,
       bondId,
       actionType: "attack-2.1-a",
-      exposure_cents: 500,
+      exposure_cents: 50,
     });
 
     // Advance time past the 1-second TTL so the sweeper would target this action
@@ -661,7 +661,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 1,
       reason: "attack-2.1-b",
@@ -671,7 +671,7 @@ describe("Attack 2.1 — sweeper runs during active resolve", () => {
       identityId,
       bondId,
       actionType: "attack-2.1-b",
-      exposure_cents: 500,
+      exposure_cents: 50,
     });
 
     // Advance time past the 1-second TTL
@@ -733,7 +733,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 1,
       reason: "attack-2.2",
@@ -743,7 +743,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
       identityId,
       bondId,
       actionType: "attack-2.2",
-      exposure_cents: 500,
+      exposure_cents: 50,
     });
 
     // Advance time past the 1-second TTL
@@ -757,7 +757,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
       .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { status: string; slashed_cents: number };
     expect(afterFirst.status).toBe("slashed");
-    expect(afterFirst.slashed_cents).toBe(600); // action exposure (ceil(500 × 1.2)) slashed, not full bond
+    expect(afterFirst.slashed_cents).toBe(60); // action exposure (ceil(50 × 1.2)) slashed, not full bond
 
     // Second sweep: the action is no longer 'open', so nothing should be slashed
     const secondSweep = service.sweepExpiredActions();
@@ -768,7 +768,7 @@ describe("Attack 2.2 — sweeper double-slash prevention", () => {
       .prepare(`SELECT status, slashed_cents FROM bonds WHERE id = ?`)
       .get(bondId) as { status: string; slashed_cents: number };
     expect(afterSecond.status).toBe("slashed");
-    expect(afterSecond.slashed_cents).toBe(600); // still 600, not 1200
+    expect(afterSecond.slashed_cents).toBe(60); // still 60, not 120
 
     validateInvariants(handle.db);
   });
@@ -800,7 +800,7 @@ describe("Attack 2.3 — expiry during execution", () => {
     const { identityId } = service.createIdentity({ publicKey: generatePublicKey() });
     const { bondId } = service.lockBond({
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 1,
       reason: "attack-2.3",
@@ -815,7 +815,7 @@ describe("Attack 2.3 — expiry during execution", () => {
         identityId,
         bondId,
         actionType: "attack-2.3",
-        exposure_cents: 100,
+        exposure_cents: 10,
       })
     ).rejects.toMatchObject({ code: "BOND_EXPIRED" });
 
@@ -870,7 +870,7 @@ describe("Attack 3.1 — exact duplicate request (replay)", () => {
     const nonce = randomUUID();
     const payload = {
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-3.1"
@@ -940,7 +940,7 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
-    const bondPayload = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-3.2" };
+    const bondPayload = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "attack-3.2" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
@@ -957,7 +957,7 @@ describe("Attack 3.2 — replay just inside the 60-second timestamp window", () 
       identityId,
       bondId,
       actionType: "attack-3.2",
-      exposure_cents: 100,
+      exposure_cents: 10,
     };
     const headers = signHeaders(privateKey, actionBody, "/v1/actions/execute", timestamp, nonce);
 
@@ -1027,7 +1027,7 @@ describe("Attack 3.4 — parallel duplicate nonce submission", () => {
     const nonce = randomUUID();
     const payload = {
       identityId,
-      amountCents: 1000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "attack-3.4"
@@ -1089,7 +1089,7 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     });
     const { identityId } = identityResponse.json() as { identityId: string };
 
-    const bondPayload41 = { identityId, amountCents: 10_000, currency: "USD", ttlSeconds: 300, reason: "attack-4.1" };
+    const bondPayload41 = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "attack-4.1" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
@@ -1098,11 +1098,11 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     });
     const { bondId } = bondResponse.json() as { bondId: string };
 
-    // 50 simultaneous execute requests, each declaring 200 cents.
-    // Effective per request: ceil(200 × 1.2) = 240 cents.
-    // Capacity: 41 × 240 = 9840 ≤ 10000 fits; 42 × 240 = 10080 exceeds.
+    // 50 simultaneous execute requests, each declaring 2 cents.
+    // Effective per request: ceil(2 × 1.2) = 3 cents.
+    // Capacity: 33 × 3 = 99 ≤ 100 fits; 34 × 3 = 102 exceeds.
     // Note: the rate limit (10 per 60 s) is the practical binding constraint —
-    // it kicks in before the capacity limit. Either way successCount ≤ 41,
+    // it kicks in before the capacity limit. Either way successCount ≤ 33,
     // and the core assertion is that outstanding_exposure_cents never exceeds
     // amount_cents (invariant 3).
     const requests = Array.from({ length: 50 }, () => {
@@ -1110,7 +1110,7 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
         identityId,
         bondId,
         actionType: "attack-4.1",
-        exposure_cents: 200,
+        exposure_cents: 2,
       };
       return app.inject({
         method: "POST",
@@ -1125,7 +1125,7 @@ describe("Attack 4.1 — 50 parallel execute requests", () => {
     const successCount = responses.filter((r) => r.statusCode === 201).length;
     const failCount   = responses.filter((r) => r.statusCode !== 201).length;
 
-    expect(successCount).toBeLessThanOrEqual(41);
+    expect(successCount).toBeLessThanOrEqual(33);
     expect(successCount + failCount).toBe(50);
 
     // The critical invariant: exposure must never exceed bond capacity
@@ -1173,7 +1173,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     });
     const { identityId: resolverId } = resolverIdRes.json() as { identityId: string };
 
-    const bondPayload42 = { identityId, amountCents: 1000, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" };
+    const bondPayload42 = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "attack-4.2" };
     const bondResponse = await app.inject({
       method: "POST",
       url: "/v1/bonds/lock",
@@ -1183,7 +1183,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     const { bondId } = bondResponse.json() as { bondId: string };
 
     // Execute action A — bond transitions active → occupied
-    const actionABody = { identityId, bondId, actionType: "attack-4.2-A", exposure_cents: 500 };
+    const actionABody = { identityId, bondId, actionType: "attack-4.2-A", exposure_cents: 50 };
     const actionAResponse = await app.inject({
       method: "POST",
       url: "/v1/actions/execute",
@@ -1200,7 +1200,7 @@ describe("Attack 4.2 — parallel resolve and execute on same bond", () => {
     // accounting is correct regardless of how the event loop interleaves the two handlers.
     const resolveBody = { outcome: "success" as const, resolverId };
     const resolveUrl = `/v1/actions/${actionId}/resolve`;
-    const actionBBody = { identityId, bondId, actionType: "attack-4.2-B", exposure_cents: 200 };
+    const actionBBody = { identityId, bondId, actionType: "attack-4.2-B", exposure_cents: 20 };
 
     const [resolveResponse, executeBResponse] = await Promise.all([
       app.inject({
@@ -1361,7 +1361,7 @@ describe("validateInvariants", () => {
 
     service.lockBond({
       identityId,
-      amountCents: 5000,
+      amountCents: 100,
       currency: "USD",
       ttlSeconds: 300,
       reason: "smoke-test",
