@@ -37,6 +37,7 @@ export interface ActionRecord {
   status: ActionStatus;
   created_at: string;
   resolved_at: string | null;
+  resolved_by_identity_id: string | null;
 }
 
 export interface IdentityStats {

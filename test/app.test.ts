@@ -368,6 +368,43 @@ describe("IBP state transitions", () => {
     });
   });
 
+  it("rejects resolutions from banned identities", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 100, "banned-resolver-test");
+    const actionBody = {
+      identityId,
+      actionType: "banned-resolver-action",
+      payload: { note: "resolver must stay active" },
+      bondId,
+      exposure_cents: 50
+    };
+
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+
+    await app.inject({
+      method: "POST",
+      url: "/admin/ban-identity",
+      headers: { "x-agentgate-key": "test-key" },
+      payload: { publicKey: resolverSigner.publicKey }
+    });
+
+    const resolveBody = { outcome: "success" as const, resolverId };
+    const resolveUrl = `/v1/actions/${actionId}/resolve`;
+    const response = await app.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: resolveBody,
+      headers: { ...signHeaders(resolverSigner.privateKey, resolveBody, resolveUrl) }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toBe("IDENTITY_BANNED");
+  });
+
   it("rejects actions that reference inactive bonds", async () => {
     const app = await buildApp();
 
@@ -604,6 +641,7 @@ describe("IBP state transitions", () => {
     // thresholds can be tested with large bond amounts.
     for (let i = 0; i < 20; i++) {
       const bondId = `seed_bond_${randomUUID()}`;
+      const resolverId = `seed_resolver_${i}`;
       const seedNow = new Date("2026-02-27T11:00:00.000Z").toISOString();
       const seedExpires = new Date("2026-02-27T11:05:00.000Z").toISOString();
       app.db.prepare(
@@ -611,9 +649,11 @@ describe("IBP state transitions", () => {
          VALUES (?, ?, 100, 'USD', 300, 'seed', 'released', ?, ?)`
       ).run(bondId, identityId, seedExpires, seedNow);
       app.db.prepare(
-        `INSERT INTO actions (id, identity_id, action_type, bond_id, exposure_cents, status, created_at, resolved_at)
-         VALUES (?, ?, 'seed', ?, 12, 'success', ?, ?)`
-      ).run(`seed_action_${randomUUID()}`, identityId, bondId, seedNow, seedNow);
+        `INSERT INTO actions (
+           id, identity_id, action_type, bond_id, exposure_cents, status,
+           created_at, resolved_at, resolved_by_identity_id
+         ) VALUES (?, ?, 'seed', ?, 100, 'success', ?, ?, ?)`
+      ).run(`seed_action_${randomUUID()}`, identityId, bondId, seedNow, seedNow, resolverId);
     }
 
     for (let index = 0; index < 10; index += 1) {

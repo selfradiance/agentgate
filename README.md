@@ -151,12 +151,20 @@ The dashboard shows per-identity scores with color coding (green for positive, r
 | Tier | Label | Requirement | Bond Cap |
 |---|---|---|---|
 | 1 | New | Default | 100¢ |
-| 2 | Established | 5+ successes, 0 malicious | 500¢ |
-| 3 | Trusted | 20+ successes, 0 malicious | No tier cap (normal capacity rules) |
+| 2 | Established | 5 qualifying successes from 5 distinct resolvers, 0 malicious | 500¢ |
+| 3 | Trusted | 20 qualifying successes from 20 distinct resolvers, 0 malicious | No tier cap (normal capacity rules) |
 
 - Any malicious resolution forces immediate demotion to Tier 1
-- Banned identities stay Tier 1 regardless of history
+- Only successes with at least 100¢ effective exposure count toward promotion
+- Trust tiers are computed from the resolution history record only: outcome, effective exposure, and resolver identity
+- Banned identities are blocked separately; the dashboard keeps showing the history-based tier and adds a `[BANNED]` tag
 - Exceeding the tier cap returns `403 TIER_BOND_CAP_EXCEEDED`
+
+**Recent hardening**
+
+- What changed: trust tier promotion now ignores tiny low-exposure wins and repeated approvals from the same resolver; `computeTrustTier` no longer reads ban state.
+- How to verify: run `npm run build`, `npm run lint`, and `npm test`.
+- Next steps: if you need stronger sybil resistance than distinct-resolver history can provide, move tier credit onto market/admin-verified outcomes or add stronger resolver attestation rules.
 
 ### Outbound HTTP Safety (`market.http`)
 
@@ -301,7 +309,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-112 tests across 12 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter).
+121 tests across 12 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter).
 
 ---
 
@@ -522,7 +530,7 @@ Read the writeups:
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (112 tests)
+- **Testing:** Vitest (121 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 - **Reverse proxy:** Caddy (auto-managed TLS)
@@ -538,7 +546,7 @@ Read the writeups:
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring and trust tier computation
-- `test/` — 112 tests across 12 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter, reputation, trust tier)
+- `test/` — 121 tests across 12 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter, reputation, trust tier)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases

@@ -286,6 +286,7 @@ export function createApp(options: AppOptions = {}): AppInstance {
       { identityId: body.resolverId, requestId: request.id, endpoint: request.url }
     );
     recordNonce(database.db, body.resolverId, nonce, request.id);
+    service.assertNotBanned(body.resolverId);
     const executorIdentityId = service.getActionIdentityId(params.actionId);
     if (body.resolverId === executorIdentityId) {
       throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");

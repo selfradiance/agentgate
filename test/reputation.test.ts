@@ -1,12 +1,38 @@
 import { describe, it, expect } from "vitest";
-import { computeTrustTier } from "../src/reputation";
-import type { ResolveOutcome } from "../src/types";
+import {
+  computeTrustTier,
+  MIN_TRUST_TIER_SUCCESS_EXPOSURE_CENTS,
+  type TrustHistoryEntry
+} from "../src/reputation";
 
-function makeHistory(successes: number, failed: number = 0, malicious: number = 0): ResolveOutcome[] {
+function makeHistory(
+  successes: number,
+  failed: number = 0,
+  malicious: number = 0,
+  options: {
+    exposureCents?: number;
+    distinctResolvers?: boolean;
+  } = {}
+): TrustHistoryEntry[] {
+  const exposureCents = options.exposureCents ?? MIN_TRUST_TIER_SUCCESS_EXPOSURE_CENTS;
+  const distinctResolvers = options.distinctResolvers ?? true;
+
   return [
-    ...Array<ResolveOutcome>(successes).fill("success"),
-    ...Array<ResolveOutcome>(failed).fill("failed"),
-    ...Array<ResolveOutcome>(malicious).fill("malicious"),
+    ...Array.from({ length: successes }, (_, index) => ({
+      outcome: "success" as const,
+      exposureCents,
+      resolvedByIdentityId: distinctResolvers ? `resolver_${index}` : "resolver_shared"
+    })),
+    ...Array.from({ length: failed }, () => ({
+      outcome: "failed" as const,
+      exposureCents: 0,
+      resolvedByIdentityId: "resolver_failed"
+    })),
+    ...Array.from({ length: malicious }, () => ({
+      outcome: "malicious" as const,
+      exposureCents: 0,
+      resolvedByIdentityId: "resolver_malicious"
+    })),
   ];
 }
 
@@ -43,7 +69,16 @@ describe("computeTrustTier", () => {
     expect(computeTrustTier(makeHistory(25, 0, 1))).toBe(1);
   });
 
-  it("banned identity stays Tier 1 regardless of successes", () => {
-    expect(computeTrustTier(makeHistory(30), true)).toBe(1);
+  it("successful resolutions below the qualifying exposure threshold do not advance tier", () => {
+    expect(computeTrustTier(makeHistory(20, 0, 0, { exposureCents: 2 }))).toBe(1);
+  });
+
+  it("repeated success approvals from the same resolver do not advance tier", () => {
+    expect(computeTrustTier(makeHistory(20, 0, 0, { distinctResolvers: false }))).toBe(1);
+  });
+
+  it("trust tier depends only on resolution history, not banned state", () => {
+    const history = makeHistory(5);
+    expect(computeTrustTier(history)).toBe(2);
   });
 });

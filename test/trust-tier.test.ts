@@ -9,8 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { createDatabase } from "../src/db";
 import { AgentGateService } from "../src/service";
-import { computeTrustTier } from "../src/reputation";
-import type { ResolveOutcome } from "../src/types";
 
 const apps: ReturnType<typeof createApp>[] = [];
 
@@ -127,6 +125,7 @@ async function resolveAction(
 function seedSuccesses(app: ReturnType<typeof createApp>, identityId: string, count: number) {
   for (let i = 0; i < count; i++) {
     const bondId = `seed_bond_${randomUUID()}`;
+    const resolverId = `seed_resolver_${i}`;
     const now = new Date().toISOString();
     const expires = new Date(Date.now() + 300_000).toISOString();
     (app as any).db.prepare(
@@ -134,9 +133,11 @@ function seedSuccesses(app: ReturnType<typeof createApp>, identityId: string, co
        VALUES (?, ?, 100, 'USD', 300, 'seed', 'released', ?, ?)`
     ).run(bondId, identityId, expires, now);
     (app as any).db.prepare(
-      `INSERT INTO actions (id, identity_id, action_type, bond_id, exposure_cents, status, created_at, resolved_at)
-       VALUES (?, ?, 'seed', ?, 12, 'success', ?, ?)`
-    ).run(`seed_action_${randomUUID()}`, identityId, bondId, now, now);
+      `INSERT INTO actions (
+         id, identity_id, action_type, bond_id, exposure_cents, status,
+         created_at, resolved_at, resolved_by_identity_id
+       ) VALUES (?, ?, 'seed', ?, 100, 'success', ?, ?, ?)`
+    ).run(`seed_action_${randomUUID()}`, identityId, bondId, now, now, resolverId);
   }
 }
 
@@ -178,6 +179,17 @@ describe("trust tier bond cap enforcement", () => {
     expect(res.json().bondId).toBeDefined();
   });
 
+  it("Tier 2 identity rejected when requesting 501¢ bond", async () => {
+    const app = await buildApp();
+    const { signer, identityId } = await createIdentity(app);
+
+    seedSuccesses(app, identityId, 5);
+
+    const res = await lockBond(app, signer, identityId, 501);
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("TIER_BOND_CAP_EXCEEDED");
+  });
+
   it("Tier 3 identity allowed when requesting bond above 500¢", async () => {
     const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
@@ -211,6 +223,12 @@ describe("trust tier demotion flow (service layer)", () => {
     vi.setSystemTime(new Date("2026-03-28T12:00:00.000Z"));
 
     const { identityId } = service.createIdentity({ publicKey: `DEMOTION_TEST_${randomUUID().slice(0, 30)}=` });
+    const resolverIds = Array.from({ length: 20 }, () =>
+      service.createIdentity({ publicKey: `RESOLVER_${randomUUID().slice(0, 30)}=` }).identityId
+    );
+    const maliciousResolverId = service.createIdentity({
+      publicKey: `MALICIOUS_RESOLVER_${randomUUID().slice(0, 30)}=`
+    }).identityId;
 
     // Build 20 successful resolutions to reach Tier 3
     // Advance time by 11+ minutes every 10 actions to clear both rate limit
@@ -225,9 +243,9 @@ describe("trust tier demotion flow (service layer)", () => {
       });
       const { actionId } = await service.executeAction({
         identityId, bondId, actionType: "tier-build",
-        exposure_cents: 10
+        exposure_cents: 83
       });
-      service.resolveAction(actionId, { outcome: "success" });
+      service.resolveAction(actionId, { outcome: "success", resolverId: resolverIds[i] });
     }
 
     // Advance time past both rate limit and progressive min bond windows
@@ -245,7 +263,10 @@ describe("trust tier demotion flow (service layer)", () => {
       identityId, bondId: largeBondId, actionType: "malicious-act",
       exposure_cents: 10
     });
-    service.resolveAction(maliciousActionId, { outcome: "malicious" });
+    service.resolveAction(maliciousActionId, {
+      outcome: "malicious",
+      resolverId: maliciousResolverId
+    });
 
     // Verify identity is now Tier 1 — cannot lock a bond above 100¢
     expect(() => service.lockBond({
@@ -263,14 +284,17 @@ describe("trust tier demotion flow (service layer)", () => {
     vi.useRealTimers();
   });
 
-  it("cheap farming: 20 trivial 2¢ bonds reach Tier 3 (documented v1 limitation)", async () => {
+  it("trivial low-exposure wins do not advance trust tier", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-03-28T12:00:00.000Z"));
 
     const { identityId } = service.createIdentity({ publicKey: `FARMING_TEST_${randomUUID().slice(0, 30)}=` });
+    const resolverIds = Array.from({ length: 20 }, () =>
+      service.createIdentity({ publicKey: `FARM_RESOLVER_${randomUUID().slice(0, 30)}=` }).identityId
+    );
 
-    // Farm Tier 3 with 20 trivial 2¢ bonds and minimal exposure (1¢ declared,
-    // ceil(1 * 1.2) = 2¢ effective, fitting within the 2¢ bond)
+    // Low-exposure successes should not count toward tier promotion, even when
+    // the resolutions come from different identities.
     for (let i = 0; i < 20; i++) {
       if (i > 0 && i % 10 === 0) {
         vi.setSystemTime(new Date(`2026-03-28T${12 + Math.floor(i / 10)}:00:00.000Z`));
@@ -283,20 +307,22 @@ describe("trust tier demotion flow (service layer)", () => {
         identityId, bondId, actionType: "cheap-farm",
         exposure_cents: 1
       });
-      service.resolveAction(actionId, { outcome: "success" });
+      service.resolveAction(actionId, {
+        outcome: "success",
+        resolverId: resolverIds[i]
+      });
     }
 
     // Advance time past both rate limit and progressive min bond windows
     vi.setSystemTime(new Date("2026-03-28T14:00:00.000Z"));
 
-    // Verify identity reached Tier 3 — can lock a large bond
-    const { bondId: largeBondId } = service.lockBond({
-      identityId, amountCents: 5000, currency: "USD", ttlSeconds: 300,
-      reason: "farmed-tier-3-big-bond"
-    });
-    expect(largeBondId).toMatch(/^bond_/);
+    expect(() => service.lockBond({
+      identityId, amountCents: 200, currency: "USD", ttlSeconds: 300,
+      reason: "still-tier-1"
+    })).toThrow(/Tier 1/);
 
-    // Confirm the tier is indeed 3
+    // Reputation stats still reflect the successful outcomes; only the trust tier
+    // ignores them because the resolved exposure was too small to qualify.
     const stats = service.getIdentitySummary(identityId);
     expect(stats.reputation.stats.successes).toBe(20);
     expect(stats.reputation.stats.malicious).toBe(0);

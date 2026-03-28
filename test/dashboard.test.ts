@@ -88,18 +88,27 @@ describe("dashboard trust tier display", () => {
     ).run(id, pk, new Date().toISOString());
   }
 
-  function seedResolvedAction(app: AppInstance, identityId: string, status: string) {
+  function seedResolvedAction(
+    app: AppInstance,
+    identityId: string,
+    status: string,
+    options: { exposureCents?: number; resolverId?: string } = {}
+  ) {
     const bondId = `bond_${randomUUID()}`;
     const now = new Date().toISOString();
     const expires = new Date(Date.now() + 300_000).toISOString();
+    const exposureCents = options.exposureCents ?? 100;
+    const resolverId = options.resolverId ?? `resolver_${randomUUID()}`;
     (app as any).db.prepare(
       `INSERT INTO bonds (id, identity_id, amount_cents, currency, ttl_seconds, reason, status, expires_at, created_at)
        VALUES (?, ?, 100, 'USD', 300, 'seed', 'released', ?, ?)`
     ).run(bondId, identityId, expires, now);
     (app as any).db.prepare(
-      `INSERT INTO actions (id, identity_id, action_type, bond_id, exposure_cents, status, created_at, resolved_at)
-       VALUES (?, ?, 'seed', ?, 10, ?, ?, ?)`
-    ).run(`action_${randomUUID()}`, identityId, bondId, status, now, now);
+      `INSERT INTO actions (
+         id, identity_id, action_type, bond_id, exposure_cents, status,
+         created_at, resolved_at, resolved_by_identity_id
+       ) VALUES (?, ?, 'seed', ?, ?, ?, ?, ?, ?)`
+    ).run(`action_${randomUUID()}`, identityId, bondId, exposureCents, status, now, now, resolverId);
   }
 
   it("new identity shows Tier 1 (New)", async () => {
@@ -134,6 +143,37 @@ describe("dashboard trust tier display", () => {
     const res = await app.inject({ method: "GET", url: "/dashboard" });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("Tier 3 (Trusted)");
+  });
+
+  it("malicious history shows Tier 1 even after qualifying successes", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    const id = "id_malicious_tier_test";
+    seedIdentity(app, id);
+    for (let i = 0; i < 5; i++) seedResolvedAction(app, id, "success");
+    seedResolvedAction(app, id, "malicious");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+
+    const row = res.body.split("<tr>").find((r: string) => r.includes("id_malicious"));
+    expect(row).toContain("Tier 1 (New)");
+  });
+
+  it("banned identities keep their history-based tier label and show the banned tag", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    const id = "id_banned_tier_test";
+    seedIdentity(app, id);
+    for (let i = 0; i < 5; i++) seedResolvedAction(app, id, "success");
+    (app as any).db.prepare(`UPDATE identities SET status = 'banned' WHERE id = ?`).run(id);
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+
+    const row = res.body.split("<tr>").find((r: string) => r.includes("id_banned_tier"));
+    expect(row).toContain("Tier 2 (Established)");
+    expect(row).toContain("[BANNED]");
   });
 
   it("two identities at different tiers each show correct label", async () => {

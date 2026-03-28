@@ -59,6 +59,7 @@ export function createDatabase(filename: string): DatabaseHandle {
       status TEXT NOT NULL CHECK(status IN ('open', 'success', 'failed', 'malicious')),
       created_at TEXT NOT NULL,
       resolved_at TEXT,
+      resolved_by_identity_id TEXT,
       FOREIGN KEY(identity_id) REFERENCES identities(id),
       FOREIGN KEY(bond_id) REFERENCES bonds(id)
     );
@@ -118,6 +119,14 @@ export function createDatabase(filename: string): DatabaseHandle {
   // Migration: add creator_id column to markets for existing databases
   try {
     db.exec(`ALTER TABLE markets ADD COLUMN creator_id TEXT REFERENCES identities(id)`);
+  } catch {
+    // Column already exists — no-op
+  }
+
+  // Migration: record who resolved an action so trust tiers can be recomputed from
+  // resolution history without any separate stored tier state.
+  try {
+    db.exec(`ALTER TABLE actions ADD COLUMN resolved_by_identity_id TEXT`);
   } catch {
     // Column already exists — no-op
   }

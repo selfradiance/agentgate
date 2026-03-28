@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { AppError } from "./errors";
 import { createLogger } from "./logger";
-import { computeTrustTier, scoreIdentity } from "./reputation";
+import { computeTrustTier, scoreIdentity, type TrustHistoryEntry } from "./reputation";
 import type {
   ActionRecord,
   BondRecord,
@@ -82,9 +82,9 @@ export class AgentGateService {
       );
     }
 
-    const identity = this.getIdentityOrThrow(input.identityId);
+    this.getIdentityOrThrow(input.identityId);
     const history = this.getResolutionHistory(input.identityId);
-    const tier = computeTrustTier(history, identity.status === "banned");
+    const tier = computeTrustTier(history);
     const cap = TIER_BOND_CAP_CENTS[tier];
     if (cap !== null && input.amountCents > cap) {
       throw new AppError(
@@ -264,8 +264,11 @@ export class AgentGateService {
       result
     };
   }
-  resolveAction(actionId: string, input: { outcome: ResolveOutcome }) {
+  resolveAction(actionId: string, input: { outcome: ResolveOutcome; resolverId?: string | null }) {
     const action = this.getActionOrThrow(actionId);
+    if (input.resolverId && input.resolverId === action.identity_id) {
+      throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");
+    }
 
     const bond = this.getBondOrThrow(action.bond_id);
     const settlement = this.calculateSettlement(action.exposure_cents, input.outcome);
@@ -275,13 +278,16 @@ export class AgentGateService {
       const result = this.db
         .prepare(
           `UPDATE actions
-           SET status = @status, resolved_at = @resolved_at
+           SET status = @status,
+               resolved_at = @resolved_at,
+               resolved_by_identity_id = @resolved_by_identity_id
            WHERE id = @id AND status = 'open'`
         )
         .run({
           id: actionId,
           status: input.outcome,
-          resolved_at: resolvedAt
+          resolved_at: resolvedAt,
+          resolved_by_identity_id: input.resolverId ?? null,
         });
 
       if (result.changes === 0) {
@@ -582,7 +588,10 @@ export class AgentGateService {
       for (const { position, side } of parsedPositions) {
         const positionOutcome = side === outcome ? 'success' : 'failed';
         try {
-          this.resolveAction(position.id, { outcome: positionOutcome });
+          this.resolveAction(position.id, {
+            outcome: positionOutcome,
+            resolverId: market.creator_id ?? null,
+          });
           settledCount++;
         } catch (err) {
           if (err instanceof AppError && err.code === "ACTION_ALREADY_RESOLVED") {
@@ -930,14 +939,22 @@ export class AgentGateService {
     return statusCode !== undefined ? { statusCode, body: bodyStr } : { body: bodyStr };
   }
 
-  private getResolutionHistory(identityId: string): ResolveOutcome[] {
+  private getResolutionHistory(identityId: string): TrustHistoryEntry[] {
     const rows = this.db
       .prepare(
-        `SELECT status FROM actions
+        `SELECT status, exposure_cents, resolved_by_identity_id FROM actions
          WHERE identity_id = ? AND status IN ('success', 'failed', 'malicious')`
       )
-      .all(identityId) as Array<{ status: ResolveOutcome }>;
-    return rows.map((r) => r.status);
+      .all(identityId) as Array<{
+        status: ResolveOutcome;
+        exposure_cents: number;
+        resolved_by_identity_id: string | null;
+      }>;
+    return rows.map((row) => ({
+      outcome: row.status,
+      exposureCents: row.exposure_cents,
+      resolvedByIdentityId: row.resolved_by_identity_id,
+    }));
   }
 
   private getBucketStart(timestampMs: number) {

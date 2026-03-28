@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { AppInstance } from "./app";
-import { computeTrustTier, scoreIdentity } from "./reputation";
+import { computeTrustTier, scoreIdentity, type TrustHistoryEntry } from "./reputation";
 import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord, ResolveOutcome } from "./types";
 
 function escapeHtml(str: string): string {
@@ -134,10 +134,14 @@ function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; a
       ? `<td>${escapeHtml(identity.agent_name)}${bannedTag}</td>`
       : `<td style="color:#555;font-style:italic">default${bannedTag}</td>`;
 
-    const history: ResolveOutcome[] = actions
+    const history: TrustHistoryEntry[] = actions
       .filter((a) => a.identity_id === identity.id && (a.status === "success" || a.status === "failed" || a.status === "malicious"))
-      .map((a) => a.status as ResolveOutcome);
-    const tier = computeTrustTier(history, identity.status === "banned");
+      .map((a) => ({
+        outcome: a.status as ResolveOutcome,
+        exposureCents: a.exposure_cents,
+        resolvedByIdentityId: a.resolved_by_identity_id,
+      }));
+    const tier = computeTrustTier(history);
     const tierLabels: Record<number, string> = { 1: "Tier 1 (New)", 2: "Tier 2 (Established)", 3: "Tier 3 (Trusted)" };
     const tierColors: Record<number, string> = { 1: "background:#3a3a3a", 2: "background:#6a5f2d", 3: "background:#2d6a4f" };
 
