@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { AppInstance } from "./app";
-import { scoreIdentity } from "./reputation";
-import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord } from "./types";
+import { computeTrustTier, scoreIdentity } from "./reputation";
+import type { IdentityRecord, BondRecord, ActionRecord, MarketRecord, ResolveOutcome } from "./types";
 
 function escapeHtml(str: string): string {
   return str
@@ -134,17 +134,25 @@ function buildReputationTable(data: { identities: unknown[]; bonds: unknown[]; a
       ? `<td>${escapeHtml(identity.agent_name)}${bannedTag}</td>`
       : `<td style="color:#555;font-style:italic">default${bannedTag}</td>`;
 
+    const history: ResolveOutcome[] = actions
+      .filter((a) => a.identity_id === identity.id && (a.status === "success" || a.status === "failed" || a.status === "malicious"))
+      .map((a) => a.status as ResolveOutcome);
+    const tier = computeTrustTier(history, identity.status === "banned");
+    const tierLabels: Record<number, string> = { 1: "Tier 1 (New)", 2: "Tier 2 (Established)", 3: "Tier 3 (Trusted)" };
+    const tierColors: Record<number, string> = { 1: "background:#3a3a3a", 2: "background:#6a5f2d", 3: "background:#2d6a4f" };
+
     return `<tr>
       <td title="${escapeHtml(identity.id)}">${idDisplay}</td>
       ${agentCell}
       <td title="${escapeHtml(identity.public_key)}">${pkDisplay}</td>
       <td style="${scoreColor};color:#eee;font-weight:bold;text-align:center">${score}</td>
+      <td style="${tierColors[tier]};color:#eee;font-weight:bold;text-align:center">${tierLabels[tier]}</td>
       <td>${escapeHtml(String(identity.created_at))}</td>
     </tr>`;
   });
 
   return `<table>
-    <thead><tr><th>id</th><th>agent</th><th>public_key</th><th>score</th><th>created_at</th></tr></thead>
+    <thead><tr><th>id</th><th>agent</th><th>public_key</th><th>score</th><th>tier</th><th>created_at</th></tr></thead>
     <tbody>${rows.join("")}</tbody>
   </table>`;
 }

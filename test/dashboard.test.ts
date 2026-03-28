@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, type AppInstance } from "../src/app";
 import { registerDashboard } from "../src/dashboard";
@@ -76,5 +77,71 @@ describe("dashboard basic auth", () => {
     });
 
     expect(res.statusCode).toBe(500);
+  });
+});
+
+describe("dashboard trust tier display", () => {
+  function seedIdentity(app: AppInstance, id: string) {
+    const pk = `DASHBOARD_TEST_${randomUUID().slice(0, 28)}==`;
+    (app as any).db.prepare(
+      `INSERT INTO identities (id, public_key, status, created_at) VALUES (?, ?, 'active', ?)`
+    ).run(id, pk, new Date().toISOString());
+  }
+
+  function seedResolvedAction(app: AppInstance, identityId: string, status: string) {
+    const bondId = `bond_${randomUUID()}`;
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 300_000).toISOString();
+    (app as any).db.prepare(
+      `INSERT INTO bonds (id, identity_id, amount_cents, currency, ttl_seconds, reason, status, expires_at, created_at)
+       VALUES (?, ?, 100, 'USD', 300, 'seed', 'released', ?, ?)`
+    ).run(bondId, identityId, expires, now);
+    (app as any).db.prepare(
+      `INSERT INTO actions (id, identity_id, action_type, bond_id, exposure_cents, status, created_at, resolved_at)
+       VALUES (?, ?, 'seed', ?, 10, ?, ?, ?)`
+    ).run(`action_${randomUUID()}`, identityId, bondId, status, now, now);
+  }
+
+  it("new identity shows Tier 1 (New)", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    seedIdentity(app, "id_tier1_test");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Tier 1 (New)");
+  });
+
+  it("identity with 5 successes shows Tier 2 (Established)", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    const id = "id_tier2_test";
+    seedIdentity(app, id);
+    for (let i = 0; i < 5; i++) seedResolvedAction(app, id, "success");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Tier 2 (Established)");
+  });
+
+  it("identity with 20 successes shows Tier 3 (Trusted)", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    const id = "id_tier3_test";
+    seedIdentity(app, id);
+    for (let i = 0; i < 20; i++) seedResolvedAction(app, id, "success");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Tier 3 (Trusted)");
+  });
+
+  it("dashboard has tier column header", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+    seedIdentity(app, "id_header_test");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.body).toContain("<th>tier</th>");
   });
 });
