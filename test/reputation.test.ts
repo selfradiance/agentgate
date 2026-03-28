@@ -31,6 +31,14 @@ describe("computeTrustTier", () => {
     expect(computeTrustTier(makeHistory(20))).toBe(3);
   });
 
+  it("identity with 19 successes returns Tier 2 (just under Tier 3 threshold)", () => {
+    expect(computeTrustTier(makeHistory(19))).toBe(2);
+  });
+
+  it("identity with 4 successes and 3 failed returns Tier 1 (failed does not advance tier)", () => {
+    expect(computeTrustTier(makeHistory(4, 3))).toBe(1);
+  });
+
   it("identity with 25 successes and 1 malicious returns Tier 1", () => {
     expect(computeTrustTier(makeHistory(25, 0, 1))).toBe(1);
   });

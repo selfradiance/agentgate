@@ -136,6 +136,28 @@ describe("dashboard trust tier display", () => {
     expect(res.body).toContain("Tier 3 (Trusted)");
   });
 
+  it("two identities at different tiers each show correct label", async () => {
+    vi.stubEnv("AGENTGATE_DEV_MODE", "true");
+    const app = await buildApp();
+
+    seedIdentity(app, "id_new_agent");
+    // no actions — stays Tier 1
+
+    const tier2Id = "id_established_agent";
+    seedIdentity(app, tier2Id);
+    for (let i = 0; i < 5; i++) seedResolvedAction(app, tier2Id, "success");
+
+    const res = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(res.statusCode).toBe(200);
+
+    // Find the row containing each identity and verify its tier label
+    const rows = res.body.split("<tr>").filter((r: string) => r.includes("id_new_agent") || r.includes("id_established"));
+    const newRow = rows.find((r: string) => r.includes("id_new_agent"));
+    const estRow = rows.find((r: string) => r.includes("id_established"));
+    expect(newRow).toContain("Tier 1 (New)");
+    expect(estRow).toContain("Tier 2 (Established)");
+  });
+
   it("dashboard has tier column header", async () => {
     vi.stubEnv("AGENTGATE_DEV_MODE", "true");
     const app = await buildApp();
