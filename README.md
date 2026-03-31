@@ -203,18 +203,6 @@ Both transports require the AgentGate HTTP server (`npm run restart`) to be runn
 }
 ```
 
-**Remote (agentgate.run):**
-```json
-{
-  "mcpServers": {
-    "agentgate": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.agentgate.run/mcp"]
-    }
-  }
-}
-```
-
 File location: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ### MCP Tools (7 total)
@@ -265,7 +253,7 @@ The dashboard shows a live Markets table with status color-coding (open → ambe
 
 ## Dashboard
 
-AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard (local) or https://agentgate.run/dashboard (remote). It shows:
+AgentGate includes a real-time HTML dashboard at http://127.0.0.1:3000/dashboard. It shows:
 
 - Summary bar with identity, bond, action, and market counts
 - Per-identity reputation scores with color coding and trust tier labels (Tier 1 New / Tier 2 Established / Tier 3 Trusted)
@@ -283,7 +271,7 @@ The page auto-refreshes every 5 seconds. The server must be running.
 GET /health
 ```
 
-Returns `200 OK` with `{ "status": "ok", "timestamp": "<ISO>" }`. No authentication required — designed for external uptime monitors (e.g., UptimeRobot). Monitored at https://agentgate.run/health every 5 minutes.
+Returns `200 OK` with `{ "status": "ok", "timestamp": "<ISO>" }`. No authentication required — designed for external uptime monitors (e.g., UptimeRobot).
 
 ---
 
@@ -483,27 +471,9 @@ Regression coverage added for:
 
 ---
 
-## Remote Deployment
+## Remote Deployment (Archived)
 
-AgentGate is deployed to a DigitalOcean droplet (Ubuntu 24.04) at [agentgate.run](https://agentgate.run).
-
-> **Security status:** UFW firewall enabled (ports 22, 80, 443 only — ports 3000 and 3001 are no longer publicly accessible). TLS live via Caddy reverse proxy with auto-managed Let's Encrypt certificates. Auth in place on both services (`x-agentgate-key` on MCP, `x-agentgate-key` + Basic Auth on REST/dashboard).
-
-- **Dashboard:** https://agentgate.run/dashboard
-- **MCP endpoint:** https://mcp.agentgate.run/mcp
-- **Health check:** https://agentgate.run/health
-- **Caddy config:** `/etc/caddy/Caddyfile` on the server — proxies `agentgate.run` → `127.0.0.1:3000` and `mcp.agentgate.run` → `127.0.0.1:3001`
-
-The server is managed by **pm2**, which keeps it running after SSH disconnect and restarts it automatically on crash or reboot.
-
-```bash
-pm2 status               # check if agentgate is running
-pm2 logs agentgate       # tail live logs
-pm2 restart agentgate    # apply updates
-pm2 stop agentgate       # stop the server
-```
-
-> **Note:** The live demo at agentgate.run (including the dashboard and MCP endpoint) is hosted on a DigitalOcean droplet with a Namecheap domain, both paid through approximately March 2027. After that date, these URLs may no longer be active. The project runs fully on localhost — see the "Running Locally" section to try it yourself.
+AgentGate was previously deployed to a DigitalOcean droplet at agentgate.run with Caddy reverse proxy, UFW firewall, pm2 process management, and UptimeRobot monitoring. The live instance was decommissioned in March 2026. The project runs fully on localhost — see the "Running Locally" section above.
 
 ---
 
@@ -520,6 +490,8 @@ Read the writeups:
 - [What Happens When an AI Agent Has to Post Collateral Before It Acts?](https://medium.com/@selfradiance/what-happens-when-an-ai-agent-has-to-post-collateral-before-it-acts-28e098198936)
 - [What If Your AI Coder Had Skin in the Game?](https://medium.com/@selfradiance/what-if-your-ai-coder-had-skin-in-the-game-ee10664d475c) (Agent 002)
 - Agent 003 writeup submitted to Coding Nexus on Medium (pending review)
+- [What Happens When an AI Agent Tries to Break the System That Governs It?](https://medium.com/@selfradiance/TODO-agent-004-stages-1-4) (Agent 004 — Stages 1–4)
+- [Nine AI Agents, Three Attack Teams, Zero Breakthroughs: What Swarm Pressure Taught Me About AI Accountability](https://medium.com/@selfradiance/TODO-agent-004-stage-5-swarms) (Agent 004 — Stage 5 Swarms)
 
 ---
 
@@ -533,8 +505,6 @@ Read the writeups:
 - **Testing:** Vitest (121 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
-- **Reverse proxy:** Caddy (auto-managed TLS)
-- **Process manager:** pm2
 
 ---
 
