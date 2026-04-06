@@ -527,6 +527,16 @@ Read the writeups:
 
 ---
 
+## Roadmap
+
+Future modules under consideration (not yet in development):
+
+- **ZK-proof bond verification** — Anonymous agent identity with economic accountability. Agents prove they hold a valid bond via zero-knowledge proof without revealing which agent they are. Monitoring ZK-API (Buterin/Davide, 2026) and OpenAnonymity for integration-ready implementations.
+- **Non-deterministic verifiers** — LLM-as-judge, API state checks, and human review verification modes. The bond loop is verifier-agnostic by design.
+- **Hardware-backed delegation** — YubiKey/FIDO2/WebAuthn to authorize agent bonds, replacing OAuth.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
