@@ -477,21 +477,38 @@ AgentGate was previously deployed to a DigitalOcean droplet at agentgate.run wit
 
 ---
 
-## Built With AgentGate
+## Ecosystem
 
-| Agent | Description |
-|---|---|
-| [agent-001-file-transform](https://github.com/selfradiance/agent-001-file-transform) | A bonded file-transform agent that accepts a task contract, executes a CSV-to-JSON transformation, verifies the result against a SHA-256 hash, and resolves through AgentGate. First agent in the single-task sandboxed agent pattern. |
-| [agent-002-file-guardian](https://github.com/selfradiance/agent-002-file-guardian) | A bonded file guardian that watches a directory, intercepts changes, verifies them via configurable commands, and slashes the bond if verification fails. Proves command-based verification in the bond loop. |
-| [agent-003-email-rewriter](https://github.com/selfradiance/agent-003-email-rewriter) | A bonded email rewriter that calls Claude to rewrite an email, then presents the result to a human for approve/reject judgment. Proves human-in-the-loop verification in the bond loop. |
-| [agent-004-red-team](https://github.com/selfradiance/agent-004-red-team) | A bonded red team simulator that attacks AgentGate from the outside over HTTP. v0.5.0 — five stages: static → adaptive → recursive → coordinated team → coordinated swarms (9-agent, 3-team campaigns). 330 tests, triple-audited (Claude Code + Codex + cross-verification). AgentGate held under coordinated 9-agent swarm pressure. |
+AgentGate is the core substrate in a larger family of reference projects. These are not random side projects — they are reference implementations exploring different layers of runtime accountability for agent systems. Each one was built in sequence, each harder than the last.
 
-Read the writeups:
+### Reference Agents
+
+| # | Agent | What it proves | Tests | Repo |
+|---|-------|---------------|-------|------|
+| 001 | **Bonded File Transform** | Deterministic verification — machine checks machine | 22 | [agentgate-bonded-file-transform](https://github.com/selfradiance/agentgate-bonded-file-transform) |
+| 002 | **File Guardian** | Command-based verification + rollback on failure | 50 | [agentgate-bonded-file-guardian](https://github.com/selfradiance/agentgate-bonded-file-guardian) |
+| 003 | **Email Rewriter** | Human judgment in the loop | 11 | [agentgate-bonded-email-rewriter](https://github.com/selfradiance/agentgate-bonded-email-rewriter) |
+| 004 | **Red Team Simulator** | Adversarial probing — five stages from solo attacker to 9-agent coordinated swarms. Includes Sleeper Agent (v0.6.0). | 330 | [agentgate-red-team-simulator](https://github.com/selfradiance/agentgate-red-team-simulator) |
+| 005 | **Recursive Verifier** | Proof-style verification — generates executable scripts, runs in sandbox, scores, iterates | 149 | [agentgate-recursive-verifier](https://github.com/selfradiance/agentgate-recursive-verifier) |
+| 006 | **Incentive Wargame** | Stress-tests incentive rules with AI-generated economic strategies | 301 | [agentgate-incentive-wargame](https://github.com/selfradiance/agentgate-incentive-wargame) |
+
+### Governance Extensions
+
+| Project | What it adds | Status | Repo |
+|---------|-------------|--------|------|
+| **Delegation Identity Proof** | Bounded human-to-agent delegation with dual bonds and a 6-state machine | v0.1.0 shipped | [agentgate-delegation-proof](https://github.com/selfradiance/agentgate-delegation-proof) |
+| **MCP Firewall** | Governance proxy for MCP tool calls — bonds before forwarding, slashes on bad outcomes | v0.1.0 shipped | [agentgate-mcp-firewall](https://github.com/selfradiance/agentgate-mcp-firewall) |
+| **Epistemic Poisoning Simulator** | Tests whether bond-and-slash can govern knowledge integrity | Design stage | — |
+
+### Writeups
+
 - [What Happens When an AI Agent Has to Post Collateral Before It Acts?](https://medium.com/@selfradiance/what-happens-when-an-ai-agent-has-to-post-collateral-before-it-acts-28e098198936)
 - [What If Your AI Coder Had Skin in the Game?](https://medium.com/@selfradiance/what-if-your-ai-coder-had-skin-in-the-game-ee10664d475c) (Agent 002)
 - Agent 003 writeup submitted to Coding Nexus on Medium (pending review)
-- [What Happens When an AI Agent Tries to Break the System That Governs It?](https://medium.com/@selfradiance/TODO-agent-004-stages-1-4) (Agent 004 — Stages 1–4)
-- [Nine AI Agents, Three Attack Teams, Zero Breakthroughs: What Swarm Pressure Taught Me About AI Accountability](https://medium.com/@selfradiance/TODO-agent-004-stage-5-swarms) (Agent 004 — Stage 5 Swarms)
+
+### Related
+
+- [RestaRules](https://github.com/selfradiance/restarules) — machine-readable agent conduct rules for restaurants. A different angle on agent governance: environment-published norms rather than substrate-enforced bonds.
 
 ---
 
