@@ -172,6 +172,10 @@ The following GET endpoints are publicly accessible without any API key or signa
 
 **If the deployment scope expands** to include sensitive per-identity data in GET responses (e.g., detailed action history, bond balances, or internal metadata), these endpoints should be gated behind `AGENTGATE_REST_KEY` or Ed25519 signature verification to prevent information leakage.
 
+### Actions Table as Post-Incident Audit Trail
+
+Beyond real-time enforcement, the `actions` table records every bonded action with identity, timestamp, parameters, and outcome. This creates a durable audit trail that can support **post-incident disclosure to affected parties** — not only real-time slashing. Most agent accountability failures involve two problems at once: no economic consequence *and* no record of what happened. AgentGate addresses both. Even when slashing is unavailable or contested, the record remains available for review, notification, and remediation.
+
 ---
 
 ## Assumptions

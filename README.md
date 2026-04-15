@@ -14,6 +14,8 @@ AgentGate takes a different approach: **before an agent can execute a high-impac
 
 AgentGate sits as a deterministic choke point between autonomous agents and external actions (market orders, API calls, financial operations), enforcing economic accountability through signed identities and reusable bond-based exposure tracking.
 
+The `actions` table serves double duty: it's both a real-time enforcement log for slashing and a durable post-incident audit trail that can support disclosure to affected parties. The threat model doc covers this in more detail.
+
 > **[Threat Model →](docs/threat-model.md)** — What AgentGate defends against, what it doesn't, and why.
 
 Read the full story: **[How I Built AgentGate](docs/manifesto.md)**
