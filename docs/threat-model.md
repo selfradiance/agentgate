@@ -37,10 +37,9 @@ Rate limits cap volume. Auth gates cap access. AgentGate caps economic exposure.
 **How AgentGate resists this:**
 
 - All state-changing requests include a millisecond timestamp in the `x-agentgate-timestamp` header.
+- All state-changing requests also require an `x-nonce` header, and nonces are stored per identity and rejected on reuse.
 - Requests older than 60 seconds are rejected.
-- The signature covers the timestamp + request body, so modifying either invalidates the signature.
-
-**Known gap:** There is no nonce store. Within the 60-second window, a replayed request with an identical timestamp and body would pass verification. A nonce-based deduplication layer is a future improvement.
+- The signature covers `nonce + method + path + timestamp + JSON.stringify(body)`, so tampering with any signed field invalidates the request.
 
 ### 3. Forged or Tampered Requests
 
@@ -49,7 +48,9 @@ Rate limits cap volume. Auth gates cap access. AgentGate caps economic exposure.
 **How AgentGate resists this:**
 
 - All state-changing endpoints require an Ed25519 signature.
-- The signed message is: `sha256(timestamp + JSON.stringify(body))`.
+- Identity registration itself requires proof-of-possession: the caller must sign the registration request with the private key matching the public key being registered.
+- Public keys are unique at the database level, so the same key cannot register multiple identities.
+- The signed message is: `sha256(nonce + method + path + timestamp + JSON.stringify(body))`.
 - The signature is verified against the registered public key for that identity.
 - Ed25519 is a strong, well-studied cryptographic scheme — forging a signature without the private key is computationally infeasible.
 
@@ -72,7 +73,7 @@ Rate limits cap volume. Auth gates cap access. AgentGate caps economic exposure.
 **How AgentGate resists this:**
 
 - Actions must be explicitly resolved (success, failed, or malicious).
-- If resolved as malicious: the bond's `amount_cents` is reduced (clamped at zero), `slashed_cents` is increased, and the bond is burned.
+- If resolved as malicious: the action's reserved exposure is slashed, the bond's `amount_cents` is reduced (clamped at zero), and `slashed_cents` is increased. Once the last open action settles, the bond closes as `slashed`.
 - The reputation system penalizes malicious actions heavily: -20 points per malicious resolution vs. +10 for success.
 - An agent's reputation score follows its identity permanently — there is no way to "reset" a damaged score except by building a long track record of good behavior.
 
@@ -84,25 +85,21 @@ Being honest about limitations is as important as describing defenses. AgentGate
 
 ### Bond Expiry Enforcement
 
-Bonds have a `ttl_seconds` field, but expiry is only checked when an action tries to use the bond. There is no background process that automatically expires or releases bonds when their TTL elapses. An expired bond sits in "active" status until something touches it.
+Bonds with open actions are swept every 60 seconds: if the bond TTL has elapsed while an action is still open, AgentGate auto-resolves that action as `malicious`. But idle bonds are not expired by a separate background pass; an unused expired bond is marked `expired` when something tries to use it.
 
-**Impact:** Low risk in current single-user local deployment. Higher risk in multi-agent or multi-tenant scenarios.
+**Impact:** Honest but slightly asymmetric lifecycle behavior. The economic guarantee is enforced for open actions, but unused expired bonds remain lazily marked until touched.
 
 ### Auto-Slash on Timeout
 
-If an action is executed but never resolved (the agent crashes, disconnects, or simply ignores the resolution step), the action stays open indefinitely. There is no sweeper process that detects timed-out actions and automatically slashes the bond.
+AgentGate does auto-slash unresolved actions, but only on bond TTL expiry. There is no separate per-action timeout shorter than the bond's TTL.
 
-**Impact:** This is the biggest gap in the economic model. An agent can tie up bond capacity forever by executing actions and never resolving them. This is the highest-priority planned fix.
+**Impact:** Timeout behavior is tied to bond design. A long-lived bond allows a long-lived unresolved action; a short-lived bond forces faster settlement.
 
 ### Multi-Instance / Distributed Deployment
 
 AgentGate uses SQLite with in-memory assumptions. Running multiple Node.js processes against the same database will produce race conditions and incorrect exposure tracking. This is a single-instance system.
 
 **Impact:** Fine for local development and single-server deployment. Not suitable for distributed or high-availability setups without architectural changes.
-
-### Identity Revocation
-
-There is currently no mechanism to revoke or ban an identity. A malicious identity with a slashed reputation can still create new bonds and attempt actions (as long as it has the collateral). The progressive minimum bond and reputation score make this increasingly expensive, but there is no hard ban.
 
 ### Real Economic Collateral
 
@@ -125,13 +122,13 @@ AgentGate does not handle TLS termination, DDoS protection, or network-layer sec
 | Attack | Defense | Status |
 |---|---|---|
 | Synthetic pressure / spam | Bond requirement + progressive minimums + rate limit | ✅ Implemented |
-| Replay attacks | Timestamp validation (60-second window) + signed requests | ✅ Implemented (no nonce store) |
-| Forged requests | Ed25519 signature verification | ✅ Implemented |
+| Replay attacks | Timestamp validation + nonce store + nonce-bound signed requests | ✅ Implemented |
+| Forged requests | Ed25519 signature verification + proof-of-possession on identity registration | ✅ Implemented |
 | Outbound SSRF | HTTP allowlist + protocol/timeout/size limits | ✅ Implemented |
 | Malicious actions | Bond slashing + reputation penalty | ✅ Implemented |
 | Unresolved action timeout | Background sweeper + auto-slash | ✅ Implemented — via `sweepExpiredActions()` in service.ts — runs every 60 seconds, slashes bonds whose TTL has expired with unresolved actions |
-| Bond auto-expiry | TTL enforcement via background process | ✅ Implemented — via `sweepExpiredActions()` in service.ts — runs every 60 seconds, slashes bonds whose TTL has expired with unresolved actions |
-| Identity revocation | Ban list or revocation mechanism | 📋 Future |
+| Bond auto-expiry | TTL enforcement on use, plus sweeper for expired bonds with open actions | ⚠️ Partial — open actions are swept; idle expired bonds are marked on next use |
+| Identity revocation | Manual ban/unban endpoints + auto-ban after 3 malicious resolutions | ✅ Implemented |
 | Sybil / identity farming | Proof-of-stake or external identity binding | 📋 Future |
 | Real economic collateral | Payment system integration | 📋 Future |
 | Multi-instance deployment | Distributed database or coordination layer | 📋 Future |
@@ -141,13 +138,13 @@ AgentGate does not handle TLS termination, DDoS protection, or network-layer sec
 
 ## Known Limitations
 
-### Identity Model Does Not Enforce Public Key Uniqueness or Proof-of-Possession
+### Identity Creation Is Unique-Per-Key but Still Cheap Across Fresh Keys
 
-The current identity registration endpoint (`POST /v1/identities`) accepts any valid Ed25519 public key and creates a new identity for it — without checking whether that key is already registered and without requiring the caller to prove they hold the corresponding private key.
+The current identity registration endpoint (`POST /v1/identities`) does enforce proof-of-possession and public-key uniqueness: the caller must sign the registration request with the matching private key, and the same public key cannot be registered twice.
 
 This means:
 
-- **A single actor can create multiple identities** using the same public key, or different keys they control, spreading activity across them.
+- **A single actor can still create multiple identities** by generating fresh keypairs they control.
 - **Reputation tracking is diluted.** A bad actor with a -40 reputation score can create a fresh identity and start over at 0.
 - **Per-identity rate limits (10 actions/60s) can be circumvented** by rotating across identities.
 - **The 3-malicious-actions auto-ban threshold resets** with each new identity, so an attacker is never permanently banned — only temporarily inconvenienced.
@@ -156,9 +153,8 @@ This means:
 
 **Future hardening options:**
 
-1. **Unique index on `public_key`** — prevent the same key from registering multiple identities.
-2. **Signed registration challenges (proof-of-possession)** — require the caller to sign a server-issued challenge during `POST /v1/identities`, proving they hold the private key. This prevents identity squatting on keys the caller doesn't control.
-3. **Key-fingerprint-scoped enforcement** — move bans, rate limits, and reputation scoring from `identity_id` to the public key fingerprint. This way, creating a new identity with the same key inherits the existing reputation and restrictions, closing the reset loophole entirely.
+1. **External identity binding** — tie keys to proof-of-stake, KYC, or other scarce credentials.
+2. **Cross-key reputation linkages** — add stronger operator-side heuristics or attestations for related identities when the deployment warrants it.
 
 ### GET Endpoints Do Not Require Authentication
 

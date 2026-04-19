@@ -10,7 +10,7 @@ As AI agents reduce the marginal cost of sending bids, API calls, negotiations, 
 
 Traditional defenses don't solve this. Rate limits cap volume but don't make bad actions costly. Auth tokens verify identity but don't require skin in the game. Policy engines enforce rules but can't make an agent economically accountable for its behavior.
 
-AgentGate takes a different approach: **before an agent can execute a high-impact action, it must post a bond as collateral.** If the action succeeds, the bond is released. If the agent behaves maliciously, the bond is slashed. This makes bad behavior economically irrational — the agent loses more than it gains.
+AgentGate takes a different approach: **before an agent can execute a high-impact action, it must post a bond as collateral.** If the action resolves cleanly, the reserved exposure is settled and released. If the agent behaves maliciously, the reserved exposure is slashed. This makes bad behavior economically irrational — the agent loses more than it gains.
 
 AgentGate sits as a deterministic choke point between autonomous agents and external actions (market orders, API calls, financial operations), enforcing economic accountability through signed identities and reusable bond-based exposure tracking.
 
@@ -57,7 +57,7 @@ curl -s http://127.0.0.1:3000/v1/bonds/lock \
   -H "x-agentgate-timestamp: $TIMESTAMP" \
   -H "x-agentgate-signature: $SIGNATURE" \
   -H "x-nonce: $(uuidgen)" \
-  -d '{ "identityId": "id_abc123", "amount_cents": 5000, "ttl_seconds": 300, "reason": "marketplace bid" }'
+  -d '{ "identityId": "id_abc123", "amountCents": 5000, "currency": "USD", "ttlSeconds": 300, "reason": "marketplace bid" }'
 ```
 
 Returns a `bondId`.
@@ -84,14 +84,14 @@ curl -s http://127.0.0.1:3000/v1/actions/<actionId>/resolve \
   -d '{ "outcome": "success", "resolverId": "id_resolver123" }'
 ```
 
-Outcome must be one of: `success`, `failed`, or `malicious`. On success/failed, exposure is released. On malicious, the bond is slashed.
+Outcome must be one of: `success`, `failed`, or `malicious`. On `success` or `failed`, that action's reserved exposure is settled and released. On `malicious`, that action's reserved exposure is slashed from the bond.
 
 ### Common Errors
 
 | Error | Cause | Fix |
 |---|---|---|
-| `INVALID_SIGNATURE` | Signature doesn't match body + timestamp | Verify you're signing `sha256(nonce + method + path + timestamp + JSON.stringify(body))` with the correct private key |
-| `TIMESTAMP_EXPIRED` | Timestamp is older than 60 seconds | Use a fresh timestamp for each request |
+| `INVALID_SIGNATURE` | Missing signature headers, stale timestamp, or signature doesn't match the signed payload | Verify you're signing `sha256(nonce + method + path + timestamp + JSON.stringify(body))` with the correct private key and a fresh timestamp |
+| `MISSING_NONCE` | `x-nonce` header is missing | Send a fresh nonce on every POST request |
 | `DUPLICATE_NONCE` | Same nonce reused by the same identity | Generate a fresh UUID for every request |
 | `TIER_BOND_CAP_EXCEEDED` | Bond amount exceeds identity's trust tier cap | Build reputation with successful resolutions to unlock higher tiers |
 | `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
@@ -125,16 +125,18 @@ Bonds are not single-use. Each bond represents reusable execution capacity.
 - **Constraint:** `outstanding_exposure_cents + effective_exposure <= amount_cents`
 - If exceeded → `INSUFFICIENT_BOND_CAPACITY`
 - **TTL cap:** maximum 86400 seconds (24 hours) — requests exceeding the cap are rejected
-- Bond status lifecycle: `active` → `occupied` (when action attached) → `released` / `burned` / `slashed`
+- Bond status lifecycle during normal settlement: `active` → `occupied` (when action attached) → `released` / `burned` / `slashed`
+- Idle bonds that are touched after their TTL has elapsed are marked `expired`; expired bonds with open actions are handled by the sweeper
 
 ### Exposure Lifecycle
 
 Bonds support multiple concurrent actions. Each action reserves its own slice of the bond's capacity, and resolving one action only releases that action's exposure — other open actions on the same bond are unaffected.
 
 - **Execute:** exposure reserved, `outstanding_exposure_cents` incremented, bond marked `occupied`
-- **Resolve (success/failed):** that action's exposure released; `refund_cents` accumulated on the bond; bond returns to `active` only when all open actions are resolved
-- **Resolve (malicious):** `amount_cents` reduced (clamped at zero), `slashed_cents` and `burned_cents` increased; bond `burned` only when no open actions remain
-- **Settlement accounting:** `refund_cents`, `burned_cents`, `slashed_cents`, and `closed_at` (ISO timestamp) are persisted on the bond record at resolution time
+- **Resolve (success):** that action's exposure released; `refund_cents` accumulated on the bond; when the last open action settles and no prior burn/slash exists, the bond closes as `released`
+- **Resolve (failed):** that action's exposure released; 95% of that action's effective exposure goes to `refund_cents`, 5% to `burned_cents`; when the last open action settles and no slash exists, the bond closes as `burned`
+- **Resolve (malicious):** that action's exposure released; `amount_cents` reduced (clamped at zero) and `slashed_cents` increased; when the last open action settles, the bond closes as `slashed`
+- **Settlement accounting:** `refund_cents`, `burned_cents`, and `slashed_cents` accumulate as each action settles; `closed_at` is written when the last open action on the bond resolves
 
 ### Auto-Slash Sweeper
 
@@ -153,7 +155,7 @@ The dashboard shows per-identity scores with color coding (green for positive, r
 | Tier | Label | Requirement | Bond Cap |
 |---|---|---|---|
 | 1 | New | Default | 100¢ |
-| 2 | Established | 5 qualifying successes from 5 distinct resolvers, 0 malicious | 500¢ |
+| 2 | Established | 5 qualifying successes from 2 distinct resolvers, 0 malicious | 500¢ |
 | 3 | Trusted | 20 qualifying successes from 20 distinct resolvers, 0 malicious | No tier cap (normal capacity rules) |
 
 - Any malicious resolution forces immediate demotion to Tier 1
@@ -229,7 +231,7 @@ AgentGate includes a prediction market demo that illustrates multi-agent economi
 
 1. An operator creates a market with a yes/no question and a resolution deadline (must be a valid future ISO 8601 timestamp)
 2. Agents take positions by executing a `market.position` action against a locked bond, declaring a `side` of `yes` or `no`
-3. When the market resolves, all open positions are settled automatically — winners' bonds are released, losers' bonds are burned
+3. When the market resolves, winning positions are settled as `success` and losing positions as `failed`; each position settles only its own reserved exposure, so shared bonds stay `occupied` until every attached action is resolved
 
 **REST endpoints:**
 
@@ -238,13 +240,19 @@ AgentGate includes a prediction market demo that illustrates multi-agent economi
 curl -s http://127.0.0.1:3000/markets \
   -H 'content-type: application/json' \
   -H 'x-agentgate-key: YOUR_KEY' \
-  -d '{ "question": "Will BTC hit 100k by Friday?", "resolutionDeadline": "2025-01-10T00:00:00Z" }'
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -H "x-nonce: $(uuidgen)" \
+  -d '{ "creatorId": "id_abc123", "question": "Will BTC hit 100k by Friday?", "resolutionDeadline": "2026-04-20T00:00:00Z" }'
 
 # Resolve a market
 curl -s http://127.0.0.1:3000/markets/<marketId>/resolve \
   -H 'content-type: application/json' \
   -H 'x-agentgate-key: YOUR_KEY' \
-  -d '{ "outcome": "yes" }'
+  -H "x-agentgate-timestamp: $TIMESTAMP" \
+  -H "x-agentgate-signature: $SIGNATURE" \
+  -H "x-nonce: $(uuidgen)" \
+  -d '{ "outcome": "yes", "resolverId": "id_abc123" }'
 ```
 
 **MCP tools:** `create_market` and `resolve_market` expose the same flow to Claude Desktop.

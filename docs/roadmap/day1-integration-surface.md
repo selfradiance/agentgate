@@ -124,12 +124,13 @@ Notes:
 All state-changing calls require signed headers: :contentReference[oaicite:15]{index=15}
 - `x-agentgate-timestamp`
 - `x-agentgate-signature`
+- `x-nonce`
 
 Signed message:
-- `sha256(timestamp + JSON.stringify(body))`
+- `sha256(nonce + method + path + timestamp + JSON.stringify(body))`
 
 This is too low-level for “agent tool” usage.
-**The adapter layer (Day 2) must generate signatures and timestamps automatically.**
+**The adapter layer (Day 2) must generate signatures, timestamps, and nonces automatically.**
 
 ---
 
@@ -158,11 +159,11 @@ These error codes should be treated as “first-class” by agent tooling:
 
 ### AUTH / SIGNING
 - `INVALID_SIGNATURE`
-- `TIMESTAMP_TOO_OLD` (replay prevention)
+- `MISSING_NONCE`
 
 ### BOND / CAPACITY
 - `INSUFFICIENT_BOND_CAPACITY` :contentReference[oaicite:17]{index=17}
-- `BOND_EXPIRED` / `BOND_INACTIVE`
+- `BOND_EXPIRED` / `BOND_NOT_ACTIVE`
 
 ### OUTBOUND SAFETY (for market.http)
 - `DESTINATION_BLOCKED` :contentReference[oaicite:18]{index=18}
