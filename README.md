@@ -4,6 +4,18 @@ A collateralized execution engine for AI agents.
 
 [![CI](https://github.com/selfradiance/agentgate/actions/workflows/ci.yml/badge.svg)](https://github.com/selfradiance/agentgate/actions/workflows/ci.yml)
 
+## Quick Explainer
+
+New to AgentGate? Watch the 4-part visual intro on X:
+
+**[AgentGate explainer thread (4 short videos)](https://x.com/selfradiance11/status/2046010251128832398)**
+
+Covers:
+- what AgentGate is
+- why permissions are not enough
+- a concrete MCP Firewall example
+- why runtime accountability matters
+
 ## Why AgentGate?
 
 As AI agents reduce the marginal cost of sending bids, API calls, negotiations, and form submissions, systems designed around human friction become vulnerable to synthetic pressure. A single agent can flood a marketplace, spam a booking system, or overwhelm an API — all at near-zero cost.
