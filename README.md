@@ -520,6 +520,7 @@ AgentGate is the core substrate in a larger family of reference projects. These 
 |---------|-------------|--------|------|
 | **Delegation Identity Proof** | Bounded human-to-agent delegation with dual bonds and a 6-state machine | v0.1.0 shipped | [agentgate-delegation-proof](https://github.com/selfradiance/agentgate-delegation-proof) |
 | **MCP Firewall** | Governance proxy for MCP tool calls — bonds before forwarding, slashes on bad outcomes | v0.1.0 shipped | [agentgate-mcp-firewall](https://github.com/selfradiance/agentgate-mcp-firewall) |
+| **Governed WriteFile Demo** | Tiny reference demo: identity -> bond -> authenticated governed `write_file` -> independent on-disk verification -> audit artifact | v0.1.0 shipped | [agentgate-governed-writefile-demo](https://github.com/selfradiance/agentgate-governed-writefile-demo) |
 | **Epistemic Poisoning Simulator** | Tests whether bond-and-slash can govern knowledge integrity | Design stage | — |
 
 ### Writeups
