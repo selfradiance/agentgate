@@ -1,12 +1,26 @@
 # AgentGate
 
-A collateralized execution engine for AI agents.
+AgentGate is a collateralized execution engine for AI agents: Ed25519 identities, reusable bonds, bounded exposure, settlement and slashing, and progressive trust tiers at the point where agents attempt external actions.
 
 [![CI](https://github.com/selfradiance/agentgate/actions/workflows/ci.yml/badge.svg)](https://github.com/selfradiance/agentgate/actions/workflows/ci.yml)
 
-## Quick Explainer
+> [!IMPORTANT]
+> **Where To Start**
+>
+> AgentGate is the deeper accountability substrate underneath parts of this ecosystem. It is usually not the first repo a cold reader should start with.
+>
+> Recommended order for a first read:
+> 1. [Governed WriteFile Demo](https://github.com/selfradiance/agentgate-governed-writefile-demo) for the narrowest end-to-end proof path
+> 2. [MCP Firewall](https://github.com/selfradiance/agentgate-mcp-firewall) for the governed tool-call layer built on top
+> 3. AgentGate (this repo) for the underlying execution engine
+>
+> Start here when you want the engine itself: identity registration, bond lifecycle, bounded exposure accounting, settlement and slashing, and transport/security mechanics.
 
-New to AgentGate? Watch the 4-part visual intro on X:
+AgentGate is the bond-and-slash substrate itself. It requires signed identities, lets agents lock reusable bond capacity against declared exposure, and records settlement outcomes in durable audit state at the deterministic choke point between agents and external actions.
+
+## Visual Explainer
+
+Prefer a short visual overview before reading? Watch the 4-part intro on X:
 
 **[AgentGate explainer thread (4 short videos)](https://x.com/selfradiance11/status/2046010251128832398)**
 
@@ -16,15 +30,13 @@ Covers:
 - a concrete MCP Firewall example
 - why runtime accountability matters
 
-## Why AgentGate?
+## What AgentGate Does
 
-As AI agents reduce the marginal cost of sending bids, API calls, negotiations, and form submissions, systems designed around human friction become vulnerable to synthetic pressure. A single agent can flood a marketplace, spam a booking system, or overwhelm an API — all at near-zero cost.
+AgentGate sits between an autonomous agent and an external action such as an API call, bid, or financial operation. Before the action runs, the agent authenticates with an Ed25519 identity and locks bond capacity against a declared exposure.
 
-Traditional defenses don't solve this. Rate limits cap volume but don't make bad actions costly. Auth tokens verify identity but don't require skin in the game. Policy engines enforce rules but can't make an agent economically accountable for its behavior.
+If the action resolves cleanly, the reserved exposure is settled and released. If it resolves as malicious, the reserved exposure is slashed. The system keeps that lifecycle in durable audit state and uses prior outcomes to gate larger bond sizes through progressive trust tiers.
 
-AgentGate takes a different approach: **before an agent can execute a high-impact action, it must post a bond as collateral.** If the action resolves cleanly, the reserved exposure is settled and released. If the agent behaves maliciously, the reserved exposure is slashed. This makes bad behavior economically irrational — the agent loses more than it gains.
-
-AgentGate sits as a deterministic choke point between autonomous agents and external actions (market orders, API calls, financial operations), enforcing economic accountability through signed identities and reusable bond-based exposure tracking.
+This is a narrow runtime accountability mechanism, not a general AI safety or general agent security solution.
 
 The `actions` table serves double duty: it's both a real-time enforcement log for slashing and a durable post-incident audit trail that can support disclosure to affected parties. The threat model doc covers this in more detail.
 
@@ -36,7 +48,7 @@ Read the full story: **[How I Built AgentGate](docs/manifesto.md)**
 
 ## Quick Integration
 
-AgentGate works with any agent that can make HTTP requests. The flow is four steps: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
+AgentGate works with any agent that can make HTTP requests. If you want the shortest outsider-readable proof, start with the [Governed WriteFile Demo](https://github.com/selfradiance/agentgate-governed-writefile-demo). If you want the governance layer that fronts MCP tools, see [MCP Firewall](https://github.com/selfradiance/agentgate-mcp-firewall). The flow below is the direct engine integration path: register an identity, lock a bond, execute an action against that bond, and resolve the outcome.
 
 > **Note:** The curl examples below assume `AGENTGATE_DEV_MODE=true` for local development (auth key enforcement is skipped). In production, add `-H 'x-agentgate-key: YOUR_KEY'` to every POST request.
 
@@ -501,7 +513,7 @@ AgentGate was previously deployed to a DigitalOcean droplet at agentgate.run wit
 
 ## Ecosystem
 
-AgentGate is the core substrate in a larger family of reference projects. These are not random side projects — they are reference implementations exploring different layers of runtime accountability for agent systems. Each one was built in sequence, each harder than the last.
+AgentGate is the core substrate in a larger family of reference projects. For a cold first run, start with the Governed WriteFile Demo; it is the narrowest proof path. The rest of this section is for readers who want adjacent reference implementations built on the same bond-and-slash model.
 
 ### Reference Agents
 
@@ -518,9 +530,9 @@ AgentGate is the core substrate in a larger family of reference projects. These 
 
 | Project | What it adds | Status | Repo |
 |---------|-------------|--------|------|
+| **Governed WriteFile Demo** | Narrowest first-run path: identity -> bond -> authenticated governed `write_file` -> independent on-disk verification -> audit artifact | v0.1.0 shipped | [agentgate-governed-writefile-demo](https://github.com/selfradiance/agentgate-governed-writefile-demo) |
 | **Delegation Identity Proof** | Bounded human-to-agent delegation with dual bonds and a 6-state machine | v0.1.0 shipped | [agentgate-delegation-proof](https://github.com/selfradiance/agentgate-delegation-proof) |
 | **MCP Firewall** | Governance proxy for MCP tool calls — bonds before forwarding, slashes on bad outcomes | v0.1.0 shipped | [agentgate-mcp-firewall](https://github.com/selfradiance/agentgate-mcp-firewall) |
-| **Governed WriteFile Demo** | Tiny reference demo: identity -> bond -> authenticated governed `write_file` -> independent on-disk verification -> audit artifact | v0.1.0 shipped | [agentgate-governed-writefile-demo](https://github.com/selfradiance/agentgate-governed-writefile-demo) |
 | **Epistemic Poisoning Simulator** | Tests whether bond-and-slash can govern knowledge integrity | Design stage | — |
 
 ### Writeups
