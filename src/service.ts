@@ -30,6 +30,25 @@ interface BondTotals {
   slashed_cents: number;
 }
 
+interface FinalizedResolutionResult {
+  actionId: string;
+  outcome: ResolveOutcome;
+  refundCents: number;
+  burnedCents: number;
+  slashedCents: number;
+}
+
+interface PendingMaliciousResolutionResult {
+  actionId: string;
+  outcome: "malicious";
+  finalized: false;
+  actionStatus: "open";
+  maliciousVotes: number;
+  maliciousVotesRequired: number;
+}
+
+type ResolveActionResult = FinalizedResolutionResult | PendingMaliciousResolutionResult;
+
 interface MarketPositionPayload {
   marketId: string;
   side: "yes" | "no";
@@ -38,6 +57,7 @@ interface MarketPositionPayload {
 const RISK_MULTIPLIER = 1.2;
 const MAX_TTL_SECONDS = 86400; // 24 hours
 const MAX_PAYLOAD_BYTES = 4096;
+const REQUIRED_MALICIOUS_VOTES = 2;
 
 const TIER_BOND_CAP_CENTS: Record<1 | 2 | 3, number | null> = {
   1: 100,
@@ -264,128 +284,22 @@ export class AgentGateService {
       result
     };
   }
-  resolveAction(actionId: string, input: { outcome: ResolveOutcome; resolverId?: string | null }) {
+  resolveAction(actionId: string, input: { outcome: ResolveOutcome; resolverId?: string | null }): ResolveActionResult {
     const action = this.getActionOrThrow(actionId);
     if (input.resolverId && input.resolverId === action.identity_id) {
       throw new AppError(403, "SELF_RESOLUTION_FORBIDDEN", "The identity that executed an action cannot resolve it");
     }
 
-    const bond = this.getBondOrThrow(action.bond_id);
-    const settlement = this.calculateSettlement(action.exposure_cents, input.outcome);
-    const resolvedAt = new Date().toISOString();
+    const result =
+      input.outcome === "malicious" && input.resolverId
+        ? this.recordManualMaliciousVote(action, input.resolverId)
+        : this.finalizeActionResolution(action, input.outcome, input.resolverId ?? null);
 
-    const tx = this.db.transaction(() => {
-      const result = this.db
-        .prepare(
-          `UPDATE actions
-           SET status = @status,
-               resolved_at = @resolved_at,
-               resolved_by_identity_id = @resolved_by_identity_id
-           WHERE id = @id AND status = 'open'`
-        )
-        .run({
-          id: actionId,
-          status: input.outcome,
-          resolved_at: resolvedAt,
-          resolved_by_identity_id: input.resolverId ?? null,
-        });
-
-      if (result.changes === 0) {
-        throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
-      }
-
-      // Subtract this action's exposure and accumulate settlement amounts
-      this.db
-        .prepare(
-          `UPDATE bonds
-           SET outstanding_exposure_cents = outstanding_exposure_cents - @action_exposure,
-               slashed_cents = slashed_cents + @slashed_cents,
-               refund_cents = refund_cents + @refund_cents,
-               burned_cents = burned_cents + @burned_cents
-           WHERE id = @id`
-        )
-        .run({
-          id: bond.id,
-          action_exposure: action.exposure_cents,
-          slashed_cents: settlement.slashedCents,
-          refund_cents: settlement.refundCents,
-          burned_cents: settlement.burnedCents
-        });
-
-      // For malicious outcomes, reduce the bond's amount by the slashed amount
-      if (settlement.slashedCents > 0) {
-        this.db
-          .prepare(
-            `UPDATE bonds
-             SET amount_cents = MAX(0, amount_cents - @slashed_cents)
-             WHERE id = @id`
-          )
-          .run({ id: bond.id, slashed_cents: settlement.slashedCents });
-      }
-
-      // Only change bond status when no other open actions remain on this bond
-      const { remaining } = this.db
-        .prepare(
-          `SELECT COUNT(*) AS remaining FROM actions
-           WHERE bond_id = @bond_id AND status = 'open'`
-        )
-        .get({ bond_id: bond.id }) as { remaining: number };
-
-      if (remaining === 0) {
-        const totals = this.db
-          .prepare(`SELECT burned_cents, slashed_cents FROM bonds WHERE id = @id`)
-          .get({ id: bond.id }) as BondTotals;
-
-        this.db
-          .prepare(`UPDATE bonds SET status = @status, closed_at = @closed_at WHERE id = @id`)
-          .run({
-            id: bond.id,
-            status: this.getClosedBondStatus(totals),
-            closed_at: resolvedAt
-          });
-      }
-    });
-
-    tx();
-
-    if (input.outcome === "malicious") {
-      createLogger().warn("bond slashed", {
-        event: "bond_slashed",
-        actionId: actionId.slice(0, 20),
-        identityId: action.identity_id.slice(0, 16),
-        bondId: action.bond_id.slice(0, 20),
-        slashedCents: settlement.slashedCents,
-      });
-
-      const { count: maliciousCount } = this.db
-        .prepare(
-          `SELECT COUNT(*) AS count FROM actions
-           WHERE identity_id = ? AND status = 'malicious'`
-        )
-        .get(action.identity_id) as { count: number };
-
-      if (maliciousCount >= 3) {
-        const identity = this.db
-          .prepare(`SELECT public_key FROM identities WHERE id = ?`)
-          .get(action.identity_id) as { public_key: string } | undefined;
-        if (identity) {
-          this.banIdentity(identity.public_key);
-          createLogger().warn("identity auto-banned", {
-            event: "identity_auto_banned",
-            identityId: action.identity_id.slice(0, 16),
-            maliciousCount,
-          });
-        }
-      }
+    if (input.outcome === "malicious" && !("finalized" in result)) {
+      this.handleFinalizedMaliciousResolution(action, result);
     }
 
-    return {
-      actionId,
-      outcome: input.outcome,
-      refundCents: settlement.refundCents,
-      burnedCents: settlement.burnedCents,
-      slashedCents: settlement.slashedCents
-    };
+    return result;
   }
 
   getIdentitySummary(identityId: string) {
@@ -815,6 +729,218 @@ export class AgentGateService {
         bucket_start: this.getBucketStart(nowMs),
         requested_at: nowMs
       });
+  }
+
+  private recordManualMaliciousVote(
+    action: ActionRecord,
+    resolverId: string
+  ): FinalizedResolutionResult | PendingMaliciousResolutionResult {
+    const recordedAt = new Date().toISOString();
+
+    const tx = this.db.transaction(() => {
+      const currentAction = this.getActionOrThrow(action.id);
+      if (currentAction.status !== "open") {
+        throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
+      }
+
+      const existingVote = this.db
+        .prepare(
+          `SELECT 1
+           FROM malicious_resolution_votes
+           WHERE action_id = @action_id
+             AND resolver_identity_id = @resolver_identity_id`
+        )
+        .get({
+          action_id: action.id,
+          resolver_identity_id: resolverId
+        });
+
+      if (existingVote) {
+        throw new AppError(
+          409,
+          "DUPLICATE_MALICIOUS_VOTE",
+          "Resolver has already voted malicious for this action"
+        );
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO malicious_resolution_votes (
+             action_id, resolver_identity_id, created_at
+           ) VALUES (
+             @action_id, @resolver_identity_id, @created_at
+           )`
+        )
+        .run({
+          action_id: action.id,
+          resolver_identity_id: resolverId,
+          created_at: recordedAt
+        });
+
+      const { voteCount } = this.db
+        .prepare(
+          `SELECT COUNT(*) AS voteCount
+           FROM malicious_resolution_votes
+           WHERE action_id = @action_id`
+        )
+        .get({ action_id: action.id }) as { voteCount: number };
+
+      if (voteCount < REQUIRED_MALICIOUS_VOTES) {
+        return {
+          actionId: action.id,
+          outcome: "malicious" as const,
+          finalized: false as const,
+          actionStatus: "open" as const,
+          maliciousVotes: voteCount,
+          maliciousVotesRequired: REQUIRED_MALICIOUS_VOTES
+        };
+      }
+
+      return this.finalizeActionResolutionInsideTransaction(
+        currentAction,
+        "malicious",
+        recordedAt,
+        resolverId
+      );
+    });
+
+    return tx();
+  }
+
+  private finalizeActionResolution(
+    action: ActionRecord,
+    outcome: ResolveOutcome,
+    resolvedByIdentityId: string | null
+  ): FinalizedResolutionResult {
+    const resolvedAt = new Date().toISOString();
+    const tx = this.db.transaction(() =>
+      this.finalizeActionResolutionInsideTransaction(
+        action,
+        outcome,
+        resolvedAt,
+        resolvedByIdentityId
+      )
+    );
+    return tx();
+  }
+
+  private finalizeActionResolutionInsideTransaction(
+    action: ActionRecord,
+    outcome: ResolveOutcome,
+    resolvedAt: string,
+    resolvedByIdentityId: string | null
+  ): FinalizedResolutionResult {
+    const bond = this.getBondOrThrow(action.bond_id);
+    const settlement = this.calculateSettlement(action.exposure_cents, outcome);
+
+    const result = this.db
+      .prepare(
+        `UPDATE actions
+         SET status = @status,
+             resolved_at = @resolved_at,
+             resolved_by_identity_id = @resolved_by_identity_id
+         WHERE id = @id AND status = 'open'`
+      )
+      .run({
+        id: action.id,
+        status: outcome,
+        resolved_at: resolvedAt,
+        resolved_by_identity_id: resolvedByIdentityId,
+      });
+
+    if (result.changes === 0) {
+      throw new AppError(409, "ACTION_ALREADY_RESOLVED", "Action has already been resolved");
+    }
+
+    this.db
+      .prepare(
+        `UPDATE bonds
+         SET outstanding_exposure_cents = outstanding_exposure_cents - @action_exposure,
+             slashed_cents = slashed_cents + @slashed_cents,
+             refund_cents = refund_cents + @refund_cents,
+             burned_cents = burned_cents + @burned_cents
+         WHERE id = @id`
+      )
+      .run({
+        id: bond.id,
+        action_exposure: action.exposure_cents,
+        slashed_cents: settlement.slashedCents,
+        refund_cents: settlement.refundCents,
+        burned_cents: settlement.burnedCents
+      });
+
+    if (settlement.slashedCents > 0) {
+      this.db
+        .prepare(
+          `UPDATE bonds
+           SET amount_cents = MAX(0, amount_cents - @slashed_cents)
+           WHERE id = @id`
+        )
+        .run({ id: bond.id, slashed_cents: settlement.slashedCents });
+    }
+
+    const { remaining } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS remaining FROM actions
+         WHERE bond_id = @bond_id AND status = 'open'`
+      )
+      .get({ bond_id: bond.id }) as { remaining: number };
+
+    if (remaining === 0) {
+      const totals = this.db
+        .prepare(`SELECT burned_cents, slashed_cents FROM bonds WHERE id = @id`)
+        .get({ id: bond.id }) as BondTotals;
+
+      this.db
+        .prepare(`UPDATE bonds SET status = @status, closed_at = @closed_at WHERE id = @id`)
+        .run({
+          id: bond.id,
+          status: this.getClosedBondStatus(totals),
+          closed_at: resolvedAt
+        });
+    }
+
+    return {
+      actionId: action.id,
+      outcome,
+      refundCents: settlement.refundCents,
+      burnedCents: settlement.burnedCents,
+      slashedCents: settlement.slashedCents
+    };
+  }
+
+  private handleFinalizedMaliciousResolution(
+    action: ActionRecord,
+    result: FinalizedResolutionResult
+  ) {
+    createLogger().warn("bond slashed", {
+      event: "bond_slashed",
+      actionId: action.id.slice(0, 20),
+      identityId: action.identity_id.slice(0, 16),
+      bondId: action.bond_id.slice(0, 20),
+      slashedCents: result.slashedCents,
+    });
+
+    const { count: maliciousCount } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM actions
+         WHERE identity_id = ? AND status = 'malicious'`
+      )
+      .get(action.identity_id) as { count: number };
+
+    if (maliciousCount >= 3) {
+      const identity = this.db
+        .prepare(`SELECT public_key FROM identities WHERE id = ?`)
+        .get(action.identity_id) as { public_key: string } | undefined;
+      if (identity) {
+        this.banIdentity(identity.public_key);
+        createLogger().warn("identity auto-banned", {
+          event: "identity_auto_banned",
+          identityId: action.identity_id.slice(0, 16),
+          maliciousCount,
+        });
+      }
+    }
   }
 
   private calculateSettlement(amountCents: number, outcome: ResolveOutcome): SettledAmounts {

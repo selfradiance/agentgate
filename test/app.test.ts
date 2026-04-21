@@ -73,6 +73,19 @@ async function resolveAction(
   });
 }
 
+async function finalizeMaliciousAction(
+  app: ReturnType<typeof createApp>,
+  firstResolverSigner: { privateKey: KeyObject },
+  firstResolverId: string,
+  secondResolverSigner: { privateKey: KeyObject },
+  secondResolverId: string,
+  actionId: string
+) {
+  const firstResponse = await resolveAction(app, firstResolverSigner, firstResolverId, actionId, "malicious");
+  const secondResponse = await resolveAction(app, secondResolverSigner, secondResolverId, actionId, "malicious");
+  return { firstResponse, secondResponse };
+}
+
 async function lockBond(
   app: ReturnType<typeof createApp>,
   signer: { privateKey: KeyObject },
@@ -293,7 +306,7 @@ describe("IBP state transitions", () => {
     });
   });
 
-  it("slashes 100% for malicious actions", async () => {
+  it("records the first malicious vote as pending and keeps the action open", async () => {
     const app = await buildApp();
 
     const { identityId, signer } = await createIdentity(app);
@@ -313,16 +326,117 @@ describe("IBP state transitions", () => {
 
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
-    // Settlement is based on action exposure (ceil(50 × 1.2) = 60), not bond amount
     const response = await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       outcome: "malicious",
+      finalized: false,
+      actionStatus: "open",
+      maliciousVotes: 1,
+      maliciousVotesRequired: 2
+    });
+
+    const action = app.db
+      .prepare("SELECT status, resolved_at, resolved_by_identity_id FROM actions WHERE id = ?")
+      .get(actionId) as { status: string; resolved_at: string | null; resolved_by_identity_id: string | null };
+    expect(action.status).toBe("open");
+    expect(action.resolved_at).toBeNull();
+    expect(action.resolved_by_identity_id).toBeNull();
+
+    const bond = app.db
+      .prepare("SELECT outstanding_exposure_cents, slashed_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; slashed_cents: number; status: string };
+    expect(bond.outstanding_exposure_cents).toBe(60);
+    expect(bond.slashed_cents).toBe(0);
+    expect(bond.status).toBe("occupied");
+  });
+
+  it("finalizes the slash on the second distinct malicious vote", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+    const { identityId: firstResolverId, signer: firstResolverSigner } = await createIdentity(app);
+    const { identityId: secondResolverId, signer: secondResolverSigner } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 100, "dual-control malicious");
+
+    const actionBody = {
+      identityId,
+      actionType: "bad-faith-action",
+      payload: {
+        reason: "Bad faith action"
+      },
+      bondId,
+      exposure_cents: 50
+    };
+
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+
+    const { firstResponse, secondResponse } = await finalizeMaliciousAction(
+      app,
+      firstResolverSigner,
+      firstResolverId,
+      secondResolverSigner,
+      secondResolverId,
+      actionId
+    );
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(secondResponse.json()).toMatchObject({
+      actionId,
+      outcome: "malicious",
       refundCents: 0,
       burnedCents: 0,
       slashedCents: 60
     });
+
+    const action = app.db
+      .prepare("SELECT status, resolved_by_identity_id FROM actions WHERE id = ?")
+      .get(actionId) as { status: string; resolved_by_identity_id: string | null };
+    expect(action.status).toBe("malicious");
+    expect(action.resolved_by_identity_id).toBe(secondResolverId);
+
+    const bond = app.db
+      .prepare("SELECT outstanding_exposure_cents, slashed_cents, status FROM bonds WHERE id = ?")
+      .get(bondId) as { outstanding_exposure_cents: number; slashed_cents: number; status: string };
+    expect(bond.outstanding_exposure_cents).toBe(0);
+    expect(bond.slashed_cents).toBe(60);
+    expect(bond.status).toBe("slashed");
+  });
+
+  it("rejects a duplicate malicious vote from the same resolver", async () => {
+    const app = await buildApp();
+
+    const { identityId, signer } = await createIdentity(app);
+    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+
+    const bondId = await lockBond(app, signer, identityId, 100, "duplicate malicious vote");
+
+    const actionBody = {
+      identityId,
+      actionType: "bad-faith-action",
+      payload: {
+        reason: "Bad faith action"
+      },
+      bondId,
+      exposure_cents: 50
+    };
+
+    const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
+
+    const firstResponse = await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+    const duplicateResponse = await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(duplicateResponse.statusCode).toBe(409);
+    expect(duplicateResponse.json().error).toBe("DUPLICATE_MALICIOUS_VOTE");
+
+    const action = app.db
+      .prepare("SELECT status FROM actions WHERE id = ?")
+      .get(actionId) as { status: string };
+    expect(action.status).toBe("open");
   });
 
   it("rejects self-resolution — executor cannot resolve their own action", async () => {
@@ -343,8 +457,8 @@ describe("IBP state transitions", () => {
 
     const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
 
-    // Attempt to resolve with the same identity that executed the action
-    const selfResolveBody = { outcome: "success" as const, resolverId: identityId };
+    // Attempt to cast a malicious vote with the same identity that executed the action
+    const selfResolveBody = { outcome: "malicious" as const, resolverId: identityId };
     const resolveUrl = `/v1/actions/${actionId}/resolve`;
     const selfResolveResponse = await app.inject({
       method: "POST",
@@ -797,7 +911,9 @@ describe("IBP state transitions", () => {
   it("final bond status keeps the most severe settled outcome across multiple actions", async () => {
     const app = await buildApp();
     const { identityId, signer } = await createIdentity(app);
-    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+    const { identityId: successResolverId, signer: successResolverSigner } = await createIdentity(app);
+    const { identityId: firstMaliciousResolverId, signer: firstMaliciousResolverSigner } = await createIdentity(app);
+    const { identityId: secondMaliciousResolverId, signer: secondMaliciousResolverSigner } = await createIdentity(app);
 
     const bondId = await lockBond(app, signer, identityId, 100, "mixed-outcome bond");
 
@@ -817,8 +933,15 @@ describe("IBP state transitions", () => {
       exposure_cents: 25
     })).json().actionId as string;
 
-    await resolveAction(app, resolverSigner, resolverId, action1Id, "malicious");
-    await resolveAction(app, resolverSigner, resolverId, action2Id, "success");
+    await finalizeMaliciousAction(
+      app,
+      firstMaliciousResolverSigner,
+      firstMaliciousResolverId,
+      secondMaliciousResolverSigner,
+      secondMaliciousResolverId,
+      action1Id
+    );
+    await resolveAction(app, successResolverSigner, successResolverId, action2Id, "success");
 
     const bond = app.db
       .prepare("SELECT status, refund_cents, burned_cents, slashed_cents FROM bonds WHERE id = ?")
@@ -1005,7 +1128,8 @@ describe("Identity Governance", () => {
   it("auto-bans identity after 3 malicious resolutions", async () => {
     const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
-    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+    const { identityId: firstResolverId, signer: firstResolverSigner } = await createIdentity(app);
+    const { identityId: secondResolverId, signer: secondResolverSigner } = await createIdentity(app);
 
     // Lock all 3 bonds upfront before any ban can trigger
     const bondId1 = await lockBond(app, signer, identityId, 100, "malicious-bond-1");
@@ -1015,8 +1139,14 @@ describe("Identity Governance", () => {
     for (const bondId of [bondId1, bondId2, bondId3]) {
       const actionBody = { identityId, actionType: "bad-action", bondId, exposure_cents: 10 };
       const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
-
-      await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+      await finalizeMaliciousAction(
+        app,
+        firstResolverSigner,
+        firstResolverId,
+        secondResolverSigner,
+        secondResolverId,
+        actionId
+      );
     }
 
     const postBanPayload = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "post-ban attempt" };
@@ -1034,7 +1164,8 @@ describe("Identity Governance", () => {
   it("auto-banned identity cannot execute actions on a pre-existing bond", async () => {
     const app = await buildApp();
     const { signer, identityId } = await createIdentity(app);
-    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+    const { identityId: firstResolverId, signer: firstResolverSigner } = await createIdentity(app);
+    const { identityId: secondResolverId, signer: secondResolverSigner } = await createIdentity(app);
 
     // Lock 4 bonds upfront — 3 will be used for malicious actions, 1 reserved for post-ban test
     const bondId1 = await lockBond(app, signer, identityId, 100, "mal-bond-1");
@@ -1046,7 +1177,14 @@ describe("Identity Governance", () => {
     for (const bondId of [bondId1, bondId2, bondId3]) {
       const actionBody = { identityId, actionType: "bad-action", bondId, exposure_cents: 10 };
       const actionId = (await executeSignedAction(app, signer, actionBody)).json().actionId as string;
-      await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+      await finalizeMaliciousAction(
+        app,
+        firstResolverSigner,
+        firstResolverId,
+        secondResolverSigner,
+        secondResolverId,
+        actionId
+      );
     }
 
     // Attempt to execute an action on the surviving bond — should be banned
@@ -1257,7 +1395,8 @@ describe("bond settlement fields", () => {
     });
     const { identityId } = idRes.json() as { identityId: string };
 
-    const { identityId: resolverId, signer: resolverSigner } = await createIdentity(app);
+    const { identityId: firstResolverId, signer: firstResolverSigner } = await createIdentity(app);
+    const { identityId: secondResolverId, signer: secondResolverSigner } = await createIdentity(app);
 
     const bondPayload = { identityId, amountCents: 100, currency: "USD", ttlSeconds: 300, reason: "settlement-test-malicious" };
     const bondRes = await app.inject({
@@ -1277,7 +1416,14 @@ describe("bond settlement fields", () => {
     });
     const { actionId } = actionRes.json() as { actionId: string };
 
-    await resolveAction(app, resolverSigner, resolverId, actionId, "malicious");
+    await finalizeMaliciousAction(
+      app,
+      firstResolverSigner,
+      firstResolverId,
+      secondResolverSigner,
+      secondResolverId,
+      actionId
+    );
 
     const bond = app.db
       .prepare(`SELECT refund_cents, burned_cents, slashed_cents, closed_at, status FROM bonds WHERE id = ?`)

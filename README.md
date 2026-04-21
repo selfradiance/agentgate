@@ -34,7 +34,7 @@ Covers:
 
 AgentGate sits between an autonomous agent and an external action such as an API call, bid, or financial operation. Before the action runs, the agent authenticates with an Ed25519 identity and locks bond capacity against a declared exposure.
 
-If the action resolves cleanly, the reserved exposure is settled and released. If it resolves as malicious, the reserved exposure is slashed. The system keeps that lifecycle in durable audit state and uses prior outcomes to gate larger bond sizes through progressive trust tiers.
+If the action resolves cleanly, the reserved exposure is settled and released. Manual `malicious` resolution now requires two distinct eligible resolver identities before the slash finalizes, while expired-action sweeps still slash immediately. The system keeps that lifecycle in durable audit state and uses prior outcomes to gate larger bond sizes through progressive trust tiers.
 
 This is a narrow runtime accountability mechanism, not a general AI safety or general agent security solution.
 
@@ -108,7 +108,7 @@ curl -s http://127.0.0.1:3000/v1/actions/<actionId>/resolve \
   -d '{ "outcome": "success", "resolverId": "id_resolver123" }'
 ```
 
-Outcome must be one of: `success`, `failed`, or `malicious`. On `success` or `failed`, that action's reserved exposure is settled and released. On `malicious`, that action's reserved exposure is slashed from the bond.
+Outcome must be one of: `success`, `failed`, or `malicious`. On `success` or `failed`, that action's reserved exposure is settled and released immediately. On manual `malicious`, the first eligible resolver vote returns a pending response with `finalized: false`, `actionStatus: "open"`, `maliciousVotes: 1`, and `maliciousVotesRequired: 2`; the second distinct eligible resolver vote finalizes the slash. Sweeper auto-slash on expired actions remains immediate.
 
 ### Common Errors
 
@@ -117,6 +117,7 @@ Outcome must be one of: `success`, `failed`, or `malicious`. On `success` or `fa
 | `INVALID_SIGNATURE` | Missing signature headers, stale timestamp, or signature doesn't match the signed payload | Verify you're signing `sha256(nonce + method + path + timestamp + JSON.stringify(body))` with the correct private key and a fresh timestamp |
 | `MISSING_NONCE` | `x-nonce` header is missing | Send a fresh nonce on every POST request |
 | `DUPLICATE_NONCE` | Same nonce reused by the same identity | Generate a fresh UUID for every request |
+| `DUPLICATE_MALICIOUS_VOTE` | Same resolver tried to cast a second malicious vote for the same open action | Use a different eligible resolver identity for the second malicious vote |
 | `TIER_BOND_CAP_EXCEEDED` | Bond amount exceeds identity's trust tier cap | Build reputation with successful resolutions to unlock higher tiers |
 | `INSUFFICIENT_BOND_CAPACITY` | Bond doesn't have enough remaining capacity | Lock a larger bond or resolve outstanding actions to free capacity |
 | `RATE_LIMIT_EXCEEDED` | More than 10 executes in 60 seconds for this identity | Wait and retry, or spread actions across a longer window |
@@ -159,12 +160,12 @@ Bonds support multiple concurrent actions. Each action reserves its own slice of
 - **Execute:** exposure reserved, `outstanding_exposure_cents` incremented, bond marked `occupied`
 - **Resolve (success):** that action's exposure released; `refund_cents` accumulated on the bond; when the last open action settles and no prior burn/slash exists, the bond closes as `released`
 - **Resolve (failed):** that action's exposure released; 95% of that action's effective exposure goes to `refund_cents`, 5% to `burned_cents`; when the last open action settles and no slash exists, the bond closes as `burned`
-- **Resolve (malicious):** that action's exposure released; `amount_cents` reduced (clamped at zero) and `slashed_cents` increased; when the last open action settles, the bond closes as `slashed`
+- **Resolve (malicious):** manual resolution uses a narrow dual-control seam: the first eligible non-executor resolver records a pending malicious vote and leaves the action open; the second distinct eligible resolver releases that action's exposure, reduces `amount_cents` (clamped at zero), increases `slashed_cents`, and closes the bond as `slashed` when no open actions remain
 - **Settlement accounting:** `refund_cents`, `burned_cents`, and `slashed_cents` accumulate as each action settles; `closed_at` is written when the last open action on the bond resolves
 
 ### Auto-Slash Sweeper
 
-A background sweeper runs every 60 seconds, checking for actions whose associated bond has expired while the action is still open. Any such action is automatically resolved as `malicious` — the bond is slashed using the same settlement logic as a manual malicious resolution. On the same 60-second interval, the server also cleans up expired nonces (older than 5 minutes) and expired rate-limit buckets (older than 60 seconds). All three run with clean shutdown on SIGINT/SIGTERM.
+A background sweeper runs every 60 seconds, checking for actions whose associated bond has expired while the action is still open. Any such action is automatically resolved as `malicious` and slashed immediately; the sweeper does not go through the manual dual-control vote path. On the same 60-second interval, the server also cleans up expired nonces (older than 5 minutes) and expired rate-limit buckets (older than 60 seconds). All three run with clean shutdown on SIGINT/SIGTERM.
 
 ### Reputation Scoring & Trust Tiers
 
@@ -190,9 +191,9 @@ The dashboard shows per-identity scores with color coding (green for positive, r
 
 **Recent hardening**
 
-- What changed: trust tier promotion now ignores tiny low-exposure wins and repeated approvals from the same resolver; `computeTrustTier` no longer reads ban state.
-- How to verify: run `npm run build`, `npm run lint`, and `npm test`.
-- Next steps: if you need stronger sybil resistance than distinct-resolver history can provide, move tier credit onto market/admin-verified outcomes or add stronger resolver attestation rules.
+- What changed: manual `malicious` action resolution now requires two distinct eligible resolver identities; the first vote is stored as a pending malicious vote, the second vote finalizes the existing slash path, and `success`, `failed`, plus sweeper auto-slash stay unchanged.
+- How to verify: run `npm test -- --run test/app.test.ts test/trust-tier.test.ts test/sweeper.test.ts`, then `npm test`, `npm run lint`, and `npm run build`.
+- Next steps: if you ever need broader adjudication than this one manual malicious seam, add it as a separate design instead of expanding this into a general quorum system.
 
 ### Outbound HTTP Safety (`market.http`)
 
@@ -331,7 +332,7 @@ This kills any old server process on port 3000 and starts fresh. Fastify REST AP
 npm run test
 ```
 
-121 tests across 12 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter).
+123 tests across 12 test suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter).
 
 ---
 
@@ -554,7 +555,7 @@ AgentGate is the core substrate in a larger family of reference projects. For a 
 - **Web framework:** Fastify
 - **Database:** SQLite via better-sqlite3
 - **Validation:** Zod
-- **Testing:** Vitest (121 tests)
+- **Testing:** Vitest (123 tests)
 - **MCP SDK:** @modelcontextprotocol/sdk
 - **CI:** GitHub Actions (build, lint, and test on every push and PR to main)
 
@@ -568,7 +569,7 @@ AgentGate is the core substrate in a larger family of reference projects. For a 
 - `src/dashboard.ts` — real-time HTML dashboard
 - `src/backup.ts` — automatic database backup on startup (keeps 5 most recent)
 - `src/reputation.ts` — reputation scoring and trust tier computation
-- `test/` — 121 tests across 12 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter, reputation, trust tier)
+- `test/` — 123 tests across 12 suites (API, MCP integration, prediction markets, sweeper, red team, outbound HTTP, dashboard, adapter, reputation, trust tier)
 - `examples/` — demo agents and adapter demo
 - `docs/threat-model.md` — threat model (attacks, defenses, non-goals, assumptions)
 - `docs/red-team-plan.md` — 20 adversarial attack scenarios across 5 phases

@@ -10,6 +10,10 @@ agent-identity*.json
 .env
 
 # Private context and config files
+*_PROJECT_CONTEXT.md
 AGENTGATE_PROJECT_CONTEXT.md
+*_build_log.md
 marketgate_build_log.md
+AGENT_OPERATING_CONTRACT.md
+process-template*.md
 claude.md

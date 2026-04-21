@@ -46,6 +46,10 @@ interface ExecuteActionResponse {
 interface ResolveActionResponse {
   actionId?: string;
   outcome?: string;
+  finalized?: boolean;
+  actionStatus?: string;
+  maliciousVotes?: number;
+  maliciousVotesRequired?: number;
   refundCents?: number;
   burnedCents?: number;
   slashedCents?: number;

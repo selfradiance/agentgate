@@ -64,6 +64,15 @@ export function createDatabase(filename: string): DatabaseHandle {
       FOREIGN KEY(bond_id) REFERENCES bonds(id)
     );
 
+    CREATE TABLE IF NOT EXISTS malicious_resolution_votes (
+      action_id TEXT NOT NULL,
+      resolver_identity_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (action_id, resolver_identity_id),
+      FOREIGN KEY(action_id) REFERENCES actions(id),
+      FOREIGN KEY(resolver_identity_id) REFERENCES identities(id)
+    );
+
     CREATE TABLE IF NOT EXISTS action_execute_buckets (
       identity_id TEXT NOT NULL,
       bucket_start INTEGER NOT NULL,
@@ -76,6 +85,8 @@ export function createDatabase(filename: string): DatabaseHandle {
 
     CREATE INDEX IF NOT EXISTS actions_bond_id_status_idx ON actions(bond_id, status);
     CREATE INDEX IF NOT EXISTS actions_identity_id_idx ON actions(identity_id);
+    CREATE INDEX IF NOT EXISTS malicious_resolution_votes_action_id_idx
+      ON malicious_resolution_votes(action_id);
     CREATE INDEX IF NOT EXISTS bonds_identity_id_idx ON bonds(identity_id);
 
     CREATE TABLE IF NOT EXISTS nonces (

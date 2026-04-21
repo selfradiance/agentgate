@@ -218,7 +218,7 @@ describe("trust tier demotion flow (service layer)", () => {
     closeDb();
   });
 
-  it("Tier 3 identity demoted to Tier 1 after a single malicious resolution", async () => {
+  it("Tier 3 identity demoted to Tier 1 after a finalized malicious resolution", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-03-28T12:00:00.000Z"));
 
@@ -226,9 +226,11 @@ describe("trust tier demotion flow (service layer)", () => {
     const resolverIds = Array.from({ length: 20 }, () =>
       service.createIdentity({ publicKey: `RESOLVER_${randomUUID().slice(0, 30)}=` }).identityId
     );
-    const maliciousResolverId = service.createIdentity({
-      publicKey: `MALICIOUS_RESOLVER_${randomUUID().slice(0, 30)}=`
-    }).identityId;
+    const maliciousResolverIds = Array.from({ length: 2 }, () =>
+      service.createIdentity({
+        publicKey: `MALICIOUS_RESOLVER_${randomUUID().slice(0, 30)}=`
+      }).identityId
+    );
 
     // Build 20 successful resolutions to reach Tier 3
     // Advance time by 11+ minutes every 10 actions to clear both rate limit
@@ -263,9 +265,19 @@ describe("trust tier demotion flow (service layer)", () => {
       identityId, bondId: largeBondId, actionType: "malicious-act",
       exposure_cents: 10
     });
+    const pendingResult = service.resolveAction(maliciousActionId, {
+      outcome: "malicious",
+      resolverId: maliciousResolverIds[0]
+    });
+    expect(pendingResult).toMatchObject({
+      outcome: "malicious",
+      finalized: false,
+      maliciousVotes: 1,
+      maliciousVotesRequired: 2
+    });
     service.resolveAction(maliciousActionId, {
       outcome: "malicious",
-      resolverId: maliciousResolverId
+      resolverId: maliciousResolverIds[1]
     });
 
     // Verify identity is now Tier 1 — cannot lock a bond above 100¢
