@@ -2,6 +2,7 @@
   "name": "agentgate",
   "version": "0.4.0",
   "private": true,
+  "license": "MIT",
   "description": "Minimal Intent Bond Protocol prototype service",
   "main": "dist/index.js",
   "scripts": {
